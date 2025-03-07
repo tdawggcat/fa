@@ -51,17 +51,18 @@ $result = $conn->query($query);
         body {
             font-family: Arial, sans-serif;
             margin: 20px;
-            line-height: 1.5;
+            line-height: 1.3;
         }
         h1 {
             text-align: center;
         }
-        ul {
-            list-style-type: none;
-            padding: 0;
+        table {
+            border-collapse: collapse;
+            width: 100%;
         }
-        li {
-            margin: 0; /* Removed extra line between entries */
+        td {
+            padding: 2px 10px;
+            border: none; /* No border lines */
         }
         a {
             text-decoration: none;
@@ -74,20 +75,23 @@ $result = $conn->query($query);
 </head>
 <body>
     <h1>Table of Contents</h1>
-    <ul>
+    <table border="0">
         <?php
         if ($result->num_rows > 0) {
             while ($row = $result->fetch_assoc()) {
                 $link = "page.php?page=" . urlencode($row['page']);
                 // Only include dash if date is present
                 $display_text = !empty(trim($row['date'])) ? htmlspecialchars($row['date']) . " - " . htmlspecialchars($row['title']) : htmlspecialchars($row['title']);
-                echo '<li><a href="' . $link . '">' . $display_text . '</a></li>';
+                echo '<tr>';
+                echo '<td>' . htmlspecialchars($row['page']) . '</td>';
+                echo '<td><a href="' . $link . '">' . $display_text . '</a></td>';
+                echo '</tr>';
             }
         } else {
-            echo '<li>No entries found.</li>';
+            echo '<tr><td colspan="2">No entries found.</td></tr>';
         }
         ?>
-    </ul>
+    </table>
 
     <?php
     $conn->close();
