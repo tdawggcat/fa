@@ -35,17 +35,32 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
-// Query to fetch index entries, grouped by word and sorted alphabetically
-$query = "SELECT word, GROUP_CONCAT(
-    CASE 
-        WHEN is_in_title = TRUE THEN CONCAT('<a href=\"page.php?page=', page, '\"><b>', page, '</b></a>')
-        ELSE CONCAT('<a href=\"page.php?page=', page, '\">', page, '</a>')
-    END 
-    ORDER BY page SEPARATOR ', '
-) AS pages
-FROM fa_index
-GROUP BY word
-ORDER BY word";
+// Set a higher group_concat_max_len to avoid truncation
+$conn->query("SET SESSION group_concat_max_len = 10000");
+
+// Query to fetch index entries, joined with fa_readings and sorted by sort_key
+$query = "SELECT i.word, MAX(i.reference) AS reference, 
+    GROUP_CONCAT(
+        CASE 
+            WHEN i.is_in_title = TRUE THEN 
+                CONCAT(
+                    COALESCE(i.suffix, ''), 
+                    ' ',
+                    '<a href=\"page.php?page=', i.page, '\"><b>', i.page, '</b></a>'
+                )
+            ELSE 
+                CONCAT(
+                    COALESCE(i.suffix, ''), 
+                    ' ',
+                    '<a href=\"page.php?page=', i.page, '\">', i.page, '</a>'
+                )
+        END 
+        ORDER BY r.sort_key SEPARATOR ', '
+    ) AS pages
+FROM fa_index i
+LEFT JOIN fa_readings r ON i.page = r.page
+GROUP BY i.word
+ORDER BY i.word";
 
 $result = $conn->query($query);
 ?>
@@ -80,7 +95,14 @@ $result = $conn->query($query);
     if ($result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
             echo '<div class="index-entry">';
-            echo htmlspecialchars($row['word']) . ', ' . $row['pages'];
+            echo htmlspecialchars($row['word']);
+            if (!empty($row['reference'])) {
+                // If there's a reference, display "See <reference>"
+                echo ', See ' . htmlspecialchars($row['reference']);
+            } elseif (!empty($row['pages'])) {
+                // If there's no reference but there are pages, display the pages
+                echo ', ' . $row['pages'];
+            }
             echo '</div>';
         }
     } else {
