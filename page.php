@@ -5,6 +5,13 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Handle logout
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout'])) {
+    session_destroy();
+    header("Location: page.php");
+    exit();
+}
+
 // Read database credentials from file
 $cred_file = '/home/tdawggcat/.mysql_user';
 if (!file_exists($cred_file)) {
@@ -205,9 +212,21 @@ if ($page && isset($_SESSION['user_id'])) {
             z-index: 1000;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
-        .read-button {
+        .read-button, .logout-button {
             margin-top: 10px;
             padding: 5px 10px;
+        }
+        .button-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .left-buttons {
+            flex: 0 0 auto;
+        }
+        .right-buttons {
+            flex: 0 0 auto;
         }
     </style>
 </head>
@@ -259,12 +278,23 @@ if ($page && isset($_SESSION['user_id'])) {
                 echo '<div class="read-dates">' . implode(', ', $date_links) . '</div>';
             }
 
-            // Show "Read" button if logged in and not read today
-            if (isset($_SESSION['user_id']) && !$read_today) {
-                echo '<form method="post" class="read-form">';
-                echo '<input type="hidden" name="page" value="' . htmlspecialchars($page) . '">';
-                echo '<button type="submit" name="mark_read" class="read-button">Read</button>';
+            // Button row for "Read" and "Logout" when logged in
+            if (isset($_SESSION['user_id'])) {
+                echo '<div class="button-row">';
+                echo '<div class="left-buttons">';
+                if (!$read_today) {
+                    echo '<form method="post" class="read-form">';
+                    echo '<input type="hidden" name="page" value="' . htmlspecialchars($page) . '">';
+                    echo '<button type="submit" name="mark_read" class="read-button">Read</button>';
+                    echo '</form>';
+                }
+                echo '</div>';
+                echo '<div class="right-buttons">';
+                echo '<form method="post">';
+                echo '<button type="submit" name="logout" class="logout-button">Logout</button>';
                 echo '</form>';
+                echo '</div>';
+                echo '</div>';
             }
         } else {
             echo '<p>Page not found: ' . htmlspecialchars($page) . '</p>';
@@ -272,6 +302,16 @@ if ($page && isset($_SESSION['user_id'])) {
         $stmt->close();
     } else {
         // Display dropdown of all pages
+        echo '<div class="navigation">';
+        echo '<div class="left">';
+        echo '<a href="toc.php">Contents</a>';
+        if (isset($_SESSION['user_id'])) {
+            echo ' | <a href="user_readings.php">History</a>';
+        } else {
+            echo ' | <a href="login.php?redirect=page.php">Login</a>';
+        }
+        echo '</div>';
+        echo '</div>';
         echo '<h2>Select a Page</h2>';
         echo '<form method="get" action="page.php">';
         echo '<select name="page" onchange="this.form.submit()">';
@@ -282,8 +322,22 @@ if ($page && isset($_SESSION['user_id'])) {
         }
         echo '</select>';
         echo '</form>';
-    }
 
+        // Add Logout button for dropdown view when logged in
+        if (isset($_SESSION['user_id'])) {
+            echo '<div class="button-row">';
+            echo '<div class="left-buttons"></div>'; // Empty left side
+            echo '<div class="right-buttons">';
+            echo '<form method="post">';
+            echo '<button type="submit" name="logout" class="logout-button">Logout</button>';
+            echo '</form>';
+            echo '</div>';
+            echo '</div>';
+        }
+    }
+    ?>
+
+    <?php
     $conn->close();
     ?>
     <div id="copyFeedback">Copied!</div>
