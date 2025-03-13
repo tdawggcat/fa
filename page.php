@@ -177,17 +177,21 @@ if ($page && isset($_SESSION['user_id'])) {
         .navigation .right {
             flex: 0 0 auto;
         }
-        .navigation a, .navigation .copy-button {
+        .navigation a {
             margin: 0 10px;
             text-decoration: none;
             color: #0066cc;
         }
-        .navigation a:hover, .navigation .copy-button:hover {
+        .navigation a:hover {
             text-decoration: underline;
         }
-        .copy-button {
+        .navigation .copy-button {
+            margin: 0 10px;
             cursor: pointer;
             color: blue;
+        }
+        .navigation .copy-button:hover {
+            text-decoration: underline;
         }
         #copyFeedback {
             position: fixed;
@@ -220,7 +224,15 @@ if ($page && isset($_SESSION['user_id'])) {
         if ($result->num_rows > 0) {
             $row = $result->fetch_assoc();
             echo '<div class="navigation">';
-            echo '<div class="left"><a href="toc.php">ToC</a></div>';
+            echo '<div class="left">';
+            echo '<a href="toc.php">Contents</a>';
+            if (isset($_SESSION['user_id'])) {
+                echo ' | <a href="user_readings.php">History</a>';
+            } else {
+                $redirect = $page ? "login.php?redirect=page.php?page=" . urlencode($page) : "login.php?redirect=page.php";
+                echo ' | <a href="' . $redirect . '">Login</a>';
+            }
+            echo '</div>';
             echo '<div class="middle">';
             if ($prev_page !== null) {
                 echo '<a href="page.php?page=' . htmlspecialchars($prev_page) . '"><</a>';
