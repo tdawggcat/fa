@@ -37,6 +37,13 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
+// Handle logout
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout'])) {
+    session_destroy();
+    header("Location: page.php");
+    exit();
+}
+
 // Handle login form submission
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
@@ -76,8 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     $stmt->close();
 }
 
-// If already logged in, redirect to the referring page or default
-if (isset($_SESSION['user_id'])) {
+// If already logged in and no parameters, show logged-in message and logout button
+if (isset($_SESSION['user_id']) && empty($_GET)) {
+    // Display logged-in message and logout button below
+} else if (isset($_SESSION['user_id'])) {
+    // Redirect if parameters are present
     $redirect = isset($_GET['redirect']) ? $_GET['redirect'] : 
                 (isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : 'page.php');
     if (strpos($redirect, 'login.php') !== false) {
@@ -121,23 +131,33 @@ $conn->close();
             color: red;
             margin-bottom: 10px;
         }
+        .logout-form {
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
-    <h1>Login</h1>
-    <div class="login-form">
-        <?php if ($error): ?>
-            <p class="error"><?php echo htmlspecialchars($error); ?></p>
-        <?php endif; ?>
-        <form method="post">
-            <label for="username">Username:</label>
-            <input type="text" name="username" id="username" required>
-            
-            <label for="password">Password:</label>
-            <input type="password" name="password" id="password" required>
-            
-            <button type="submit" name="login">Login</button>
+    <?php if (isset($_SESSION['user_id']) && empty($_GET)): ?>
+        <h1>You are already logged in</h1>
+        <form method="post" class="logout-form">
+            <button type="submit" name="logout">Logout</button>
         </form>
-    </div>
+    <?php else: ?>
+        <h1>Login</h1>
+        <div class="login-form">
+            <?php if ($error): ?>
+                <p class="error"><?php echo htmlspecialchars($error); ?></p>
+            <?php endif; ?>
+            <form method="post">
+                <label for="username">Username:</label>
+                <input type="text" name="username" id="username" required>
+                
+                <label for="password">Password:</label>
+                <input type="password" name="password" id="password" required>
+                
+                <button type="submit" name="login">Login</button>
+            </form>
+        </div>
+    <?php endif; ?>
 </body>
 </html>
