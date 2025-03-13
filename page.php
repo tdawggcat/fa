@@ -1,4 +1,6 @@
 <?php
+session_start(); // Start session to track logged-in user
+
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -36,15 +38,30 @@ if ($conn->connect_error) {
 }
 
 // Get the current date
-$currentDate = new DateTime('2025-03-07'); // Set to March 07, 2025 as per context
+$currentDate = new DateTime();
+$today = $currentDate->format('Y-m-d'); // For database comparison (e.g., "2025-03-13")
+$monthDay = $currentDate->format('F j'); // For page lookup (e.g., "March 13")
+
+// Handle "Read" button submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_read']) && isset($_SESSION['user_id'])) {
+    $page = $_POST['page'];
+    $user_id = $_SESSION['user_id'];
+
+    $stmt = $conn->prepare("INSERT INTO fa_user_readings (user_id, page, read_date) VALUES (?, ?, ?)");
+    $stmt->bind_param("iss", $user_id, $page, $today);
+    $stmt->execute();
+    $stmt->close();
+
+    // Redirect to the same page to refresh the display
+    header("Location: page.php?page=" . urlencode($page));
+    exit();
+}
 
 // Get the page number from the URL query string, if provided
 $page = isset($_GET['page']) ? $_GET['page'] : null;
 
 // Determine the page to display if not provided
 if (!$page) {
-    // Use Month Day format without leading zeros (e.g., "March 7")
-    $monthDay = $currentDate->format('F j'); // e.g., "March 7"
     $dateQuery = "SELECT page FROM fa_readings WHERE date = ?";
     $stmt = $conn->prepare($dateQuery);
     $stmt->bind_param("s", $monthDay);
@@ -53,7 +70,6 @@ if (!$page) {
     if ($row = $result->fetch_assoc()) {
         $page = $row['page'];
     } else {
-        // Fallback to the first page (e.g., 1) if no match
         $page = 1;
     }
     $stmt->close();
@@ -71,6 +87,28 @@ while ($row = $pages_result->fetch_assoc()) {
 $current_index = $page ? array_search($page, $pages) : -1;
 $prev_page = ($current_index > 0) ? $pages[$current_index - 1] : null;
 $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] : null;
+
+// Check reading history and today's status if logged in
+$read_dates = [];
+$read_today = false;
+if ($page && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    
+    // Fetch all read dates for this user and page
+    $read_query = "SELECT read_date FROM fa_user_readings WHERE user_id = ? AND page = ? ORDER BY read_date DESC";
+    $stmt = $conn->prepare($read_query);
+    $stmt->bind_param("is", $user_id, $page);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $date = new DateTime($row['read_date']);
+        $read_dates[] = $date->format('n/j/y'); // Format as m/d/yy (e.g., "3/13/25")
+        if ($row['read_date'] === $today) {
+            $read_today = true;
+        }
+    }
+    $stmt->close();
+}
 ?>
 
 <!DOCTYPE html>
@@ -99,36 +137,48 @@ $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] :
             margin: 10px 0;
         }
         .page-reading p {
-            margin: 0 0 0; /* No blank lines between paragraphs */
-            text-indent: 1em; /* First line indent */
+            margin: 0 0 0;
+            text-indent: 1em;
         }
         .today-i-will {
             margin: 15px 0;
         }
         .page-number {
             margin-top: 20px;
-            font-size: 0.9em; /* Slightly smaller font size */
+            font-size: 0.9em;
+        }
+        .read-dates {
+            font-size: 0.9em;
+            color: #555;
+            margin-top: 5px;
+        }
+        .read-dates a {
+            text-decoration: none;
+            color: #0066cc;
+        }
+        .read-dates a:hover {
+            text-decoration: underline;
         }
         .navigation {
-            margin-bottom: 10px; /* Space below navigation, above date */
+            margin-bottom: 10px;
             display: flex;
-            justify-content: space-between; /* Distributes space between sections */
+            justify-content: space-between;
             align-items: center;
         }
         .navigation .left {
-            flex: 0 0 auto; /* Fixed width for ToC */
+            flex: 0 0 auto;
         }
         .navigation .middle {
-            flex: 1; /* Takes up remaining space */
+            flex: 1;
             display: flex;
-            justify-content: center; /* Centers the < and > links */
+            justify-content: center;
             align-items: center;
         }
         .navigation .right {
-            flex: 0 0 auto; /* Fixed width for Copy */
+            flex: 0 0 auto;
         }
         .navigation a, .navigation .copy-button {
-            margin: 0 10px; /* Maintains spacing between < and > */
+            margin: 0 10px;
             text-decoration: none;
             color: #0066cc;
         }
@@ -151,6 +201,10 @@ $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] :
             z-index: 1000;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
+        .read-button {
+            margin-top: 10px;
+            padding: 5px 10px;
+        }
     </style>
 </head>
 <body>
@@ -165,7 +219,6 @@ $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] :
 
         if ($result->num_rows > 0) {
             $row = $result->fetch_assoc();
-            // Navigation links: ToC left, < and > middle, Copy right
             echo '<div class="navigation">';
             echo '<div class="left"><a href="toc.php">ToC</a></div>';
             echo '<div class="middle">';
@@ -180,24 +233,38 @@ $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] :
             echo '</div>';
             echo '<div class="page-date">' . htmlspecialchars($row['date']) . '</div>';
             echo '<div class="page-title">' . htmlspecialchars($row['title']) . '</div>';
-            // Output reading as stored HTML
             echo '<div class="page-reading">';
             echo $row['reading'];
             echo '</div>';
-            // Output today_i_will as stored HTML
             echo '<div class="today-i-will">' . $row['today_i_will'] . '</div>';
             echo '<div class="page-number">Page ' . htmlspecialchars($row['page']) . '</div>';
+
+            // Display read dates as clickable links if logged in and has history
+            if (!empty($read_dates)) {
+                $date_links = array_map(function($date) {
+                    return '<a href="user_readings.php?date=' . urlencode($date) . '">' . $date . '</a>';
+                }, $read_dates);
+                echo '<div class="read-dates">' . implode(', ', $date_links) . '</div>';
+            }
+
+            // Show "Read" button if logged in and not read today
+            if (isset($_SESSION['user_id']) && !$read_today) {
+                echo '<form method="post" class="read-form">';
+                echo '<input type="hidden" name="page" value="' . htmlspecialchars($page) . '">';
+                echo '<button type="submit" name="mark_read" class="read-button">Read</button>';
+                echo '</form>';
+            }
         } else {
             echo '<p>Page not found: ' . htmlspecialchars($page) . '</p>';
         }
         $stmt->close();
     } else {
-        // Display dropdown of all pages, sorted by sort_key
+        // Display dropdown of all pages
         echo '<h2>Select a Page</h2>';
         echo '<form method="get" action="page.php">';
         echo '<select name="page" onchange="this.form.submit()">';
         echo '<option value="">-- Select a Page --</option>';
-        $pages_result->data_seek(0); // Reset result pointer
+        $pages_result->data_seek(0);
         while ($row = $pages_result->fetch_assoc()) {
             echo '<option value="' . htmlspecialchars($row['page']) . '">' . htmlspecialchars($row['page']) . ' - ' . htmlspecialchars($row['title']) . '</option>';
         }
@@ -210,7 +277,6 @@ $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] :
     <div id="copyFeedback">Copied!</div>
     <script>
         function copyToClipboard() {
-            // Create a temporary div to hold the formatted content
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = `
                 <div class="page-date">${document.querySelector('.page-date').textContent}</div>
@@ -218,8 +284,6 @@ $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] :
                 <div class="page-reading">${document.querySelector('.page-reading').innerHTML}</div>
                 ${document.querySelector('.today-i-will') ? `<div class="today-i-will">${document.querySelector('.today-i-will').innerHTML}</div>` : ''}
             `;
-
-            // Apply styles to preserve formatting
             tempDiv.style.cssText = `
                 font-family: Arial, sans-serif;
                 line-height: 1.5;
@@ -231,27 +295,19 @@ $next_page = ($current_index < count($pages) - 1) ? $pages[$current_index + 1] :
             if (tempDiv.querySelector('.today-i-will')) {
                 tempDiv.querySelector('.today-i-will').style.cssText = 'margin: 15px 0;';
             }
-
-            // Add to document (hidden) and select the content
             document.body.appendChild(tempDiv);
             const range = document.createRange();
             range.selectNode(tempDiv);
             window.getSelection().removeAllRanges();
             window.getSelection().addRange(range);
-
             try {
                 document.execCommand('copy');
-                // Show "Copied!" feedback for 1 second
                 const feedback = document.getElementById('copyFeedback');
                 feedback.style.display = 'block';
-                setTimeout(() => {
-                    feedback.style.display = 'none';
-                }, 1000); // Hide after 1 second (1000ms)
+                setTimeout(() => feedback.style.display = 'none', 1000);
             } catch (err) {
                 alert('Failed to copy content. Please try manually.');
             }
-
-            // Clean up
             window.getSelection().removeAllRanges();
             document.body.removeChild(tempDiv);
         }
