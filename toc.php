@@ -5,6 +5,21 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Function to detect mobile device
+function isMobile() {
+    $user_agent = strtolower($_SERVER['HTTP_USER_AGENT']);
+    $mobile_keywords = [
+        'mobile', 'android', 'iphone', 'ipad', 'ipod', 'blackberry', 
+        'windows phone', 'opera mini', 'silk', 'kindle', 'webos'
+    ];
+    foreach ($mobile_keywords as $keyword) {
+        if (strpos($user_agent, $keyword) !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
 $cred_file = '/home/tdawggcat/.mysql_user';
 if (!file_exists($cred_file)) {
     die("Error: Credentials file not found at $cred_file");
@@ -62,6 +77,9 @@ $result = $conn->query($query);
             border: none;
             text-align: left;
         }
+        .no-wrap {
+            white-space: nowrap;
+        }
         a {
             text-decoration: none;
             color: #0066cc;
@@ -78,13 +96,22 @@ $result = $conn->query($query);
         <table>
             <tr>
                 <th>Page</th>
-                <th>Day</th>
+                <th class="no-wrap">Day</th>
                 <th>Title</th>
             </tr>
             <?php while ($row = $result->fetch_assoc()): ?>
                 <tr>
                     <td><a href="page.php?page=<?php echo urlencode($row['page']); ?>"><?php echo htmlspecialchars($row['page']); ?></a></td>
-                    <td><a href="page.php?page=<?php echo urlencode($row['page']); ?>"><?php echo htmlspecialchars($row['date']); ?></a></td>
+                    <td class="no-wrap"><a href="page.php?page=<?php echo urlencode($row['page']); ?>">
+                        <?php 
+                        if (isMobile()) {
+                            $date = DateTime::createFromFormat('F j', $row['date']);
+                            echo $date ? htmlspecialchars($date->format('M j')) : htmlspecialchars($row['date']);
+                        } else {
+                            echo htmlspecialchars($row['date']);
+                        }
+                        ?>
+                    </a></td>
                     <td><a href="page.php?page=<?php echo urlencode($row['page']); ?>"><?php echo htmlspecialchars($row['title']); ?></a></td>
                 </tr>
             <?php endwhile; ?>
