@@ -56,23 +56,24 @@ if (isset($_GET['date'])) {
         $read_date = $date->format('Y-m-d'); // e.g., "2025-03-13"
         $display_date = $date->format('n/j/y'); // e.g., "3/13/25"
         
-        // Fetch pages read on this date with title from fa_readings
-        $query = "SELECT ur.page, r.date, r.title 
+        // Fetch pages read on this date with title from fa_readings, ordered by id
+        $query = "SELECT ur.read_date, ur.page, r.date, r.title 
                   FROM fa_user_readings ur 
                   LEFT JOIN fa_readings r ON ur.page = r.page 
-                  WHERE ur.user_id = ? AND ur.read_date = ?";
+                  WHERE ur.user_id = ? AND ur.read_date = ? 
+                  ORDER BY ur.id";
         $stmt = $conn->prepare($query);
         $stmt->bind_param("is", $user_id, $read_date);
         $stmt->execute();
         $result = $stmt->get_result();
     }
 } else {
-    // Fetch all reading history for the user, newest first, with title
+    // Fetch all reading history for the user, newest first, with title, ordered by read_date then id
     $query = "SELECT ur.read_date, ur.page, r.date, r.title 
               FROM fa_user_readings ur 
               LEFT JOIN fa_readings r ON ur.page = r.page 
               WHERE ur.user_id = ? 
-              ORDER BY ur.read_date DESC";
+              ORDER BY ur.read_date DESC, ur.id";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -85,7 +86,7 @@ if (isset($_GET['date'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My estudioading History - Families Anonymous Readings</title>
+    <title>My Reading History - Families Anonymous Readings</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -106,20 +107,14 @@ if (isset($_GET['date'])) {
             width: 100%;
             max-width: 600px;
         }
-        td {
-            padding: 5px 10px;
+        th, td {
+            padding: 2px 5px;
             border: none;
+            text-align: left;
         }
         hr {
             border: 0;
             border-top: 1px solid #ccc;
-            margin: 5px 0;
-        }
-        ul {
-            list-style-type: none;
-            padding: 0;
-        }
-        li {
             margin: 5px 0;
         }
         a {
@@ -139,62 +134,52 @@ if (isset($_GET['date'])) {
 
     <?php if (isset($error)): ?>
         <p class="error"><?php echo htmlspecialchars($error); ?></p>
-    <?php elseif (isset($_GET['date'])): ?>
-        <h2>Readings on <?php echo htmlspecialchars($display_date); ?></h2>
-        <?php if ($result->num_rows > 0): ?>
-            <ul>
-                <?php while ($row = $result->fetch_assoc()): ?>
-                    <li>
-                        <a href="page.php?page=<?php echo urlencode($row['page']); ?>">
-                            <?php 
-                            echo htmlspecialchars($row['page'] . ' - ' . $row['date'] . ' - ' . $row['title']); 
-                            ?>
-                        </a>
-                    </li>
-                <?php endwhile; ?>
-            </ul>
-        <?php else: ?>
-            <p>No readings found for this date.</p>
-        <?php endif; ?>
-    <?php else: ?>
-        <?php if ($result->num_rows > 0): ?>
-            <table>
-                <tr><td colspan="2"><hr></td></tr> <!-- Start with horizontal line -->
-                <?php 
-                $previous_date = null;
-                while ($row = $result->fetch_assoc()): 
-                    $current_date = $row['read_date'];
-                    $show_date = ($previous_date !== $current_date);
-                    if ($previous_date !== null && $show_date) {
-                        echo '<tr><td colspan="2"><hr></td></tr>'; // Line between date changes
-                    }
-                ?>
-                    <tr>
-                        <td>
-                            <?php 
-                            if ($show_date) {
-                                $read_date = new DateTime($row['read_date']);
-                                echo $read_date->format('n/j/y');
+    <?php elseif ($result->num_rows > 0): ?>
+        <table>
+            <tr><td colspan="4"><hr></td></tr> <!-- Top line -->
+            <tr>
+                <th>Reading Date</th>
+                <th>Page</th>
+                <th>Day</th>
+                <th>Title</th>
+            </tr>
+            <tr><td colspan="4"><hr></td></tr> <!-- Line after header -->
+            <?php 
+            $previous_date = null;
+            while ($row = $result->fetch_assoc()): 
+                $current_date = $row['read_date'];
+                $show_date = ($previous_date !== $current_date);
+                if ($previous_date !== null && $show_date) {
+                    echo '<tr><td colspan="4"><hr></td></tr>'; // Line between dates
+                }
+            ?>
+                <tr>
+                    <td>
+                        <?php 
+                        if ($show_date) {
+                            $read_date = new DateTime($row['read_date']);
+                            $day_of_week = $read_date->format('l');
+                            $formatted_date = $read_date->format('n/j/y');
+                            if ($day_of_week === 'Tuesday') {
+                                echo '<b><i>' . htmlspecialchars($formatted_date) . '</i></b>';
+                            } else {
+                                echo htmlspecialchars($formatted_date);
                             }
-                            ?>
-                        </td>
-                        <td>
-                            <a href="page.php?page=<?php echo urlencode($row['page']); ?>">
-                                <?php 
-                                echo htmlspecialchars($row['page'] . ' - ' . $row['date'] . ' - ' . $row['title']); 
-                                ?>
-                            </a>
-                        </td>
-                    </tr>
-                <?php 
-                    $previous_date = $current_date;
-                endwhile; 
-                ?>
-                <tr><td colspan="2"><hr></td></tr> <!-- End with horizontal line -->
-            </table>
-        <?php else: ?>
-            <p>No reading history found.</p>
-        <?php endif; ?>
+                        }
+                        ?>
+                    </td>
+                    <td><a href="page.php?page=<?php echo urlencode($row['page']); ?>"><?php echo htmlspecialchars($row['page']); ?></a></td>
+                    <td><a href="page.php?page=<?php echo urlencode($row['page']); ?>"><?php echo htmlspecialchars($row['date']); ?></a></td>
+                    <td><a href="page.php?page=<?php echo urlencode($row['page']); ?>"><?php echo htmlspecialchars($row['title']); ?></a></td>
+                </tr>
+            <?php 
+                $previous_date = $current_date;
+            endwhile; 
+            ?>
+            <tr><td colspan="4"><hr></td></tr> <!-- Bottom line -->
+        </table>
+    <?php else: ?>
+        <p>No reading history found.</p>
     <?php endif; ?>
 
     <?php
