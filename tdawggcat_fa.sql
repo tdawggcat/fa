@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Mar 13, 2025 at 05:56 PM
+-- Generation Time: Mar 13, 2025 at 09:00 PM
 -- Server version: 8.0.41
 -- PHP Version: 8.3.17
 
@@ -69,10 +69,24 @@ CREATE TABLE `fa_users` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `fa_user_meetings`
+--
+
+CREATE TABLE `fa_user_meetings` (
+  `id` int NOT NULL,
+  `user_id` int NOT NULL,
+  `meeting_date` date NOT NULL,
+  `title` varchar(255) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `fa_user_readings`
 --
 
 CREATE TABLE `fa_user_readings` (
+  `id` int NOT NULL,
   `user_id` int NOT NULL,
   `page` varchar(10) NOT NULL,
   `read_date` date NOT NULL
@@ -105,10 +119,18 @@ ALTER TABLE `fa_users`
   ADD UNIQUE KEY `username` (`username`);
 
 --
+-- Indexes for table `fa_user_meetings`
+--
+ALTER TABLE `fa_user_meetings`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `unique_user_date` (`user_id`,`meeting_date`);
+
+--
 -- Indexes for table `fa_user_readings`
 --
 ALTER TABLE `fa_user_readings`
-  ADD PRIMARY KEY (`user_id`,`page`,`read_date`),
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `unique_reading` (`user_id`,`page`,`read_date`),
   ADD KEY `page` (`page`);
 
 --
@@ -128,6 +150,18 @@ ALTER TABLE `fa_users`
   MODIFY `id` int NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `fa_user_meetings`
+--
+ALTER TABLE `fa_user_meetings`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fa_user_readings`
+--
+ALTER TABLE `fa_user_readings`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
 -- Constraints for dumped tables
 --
 
@@ -136,6 +170,12 @@ ALTER TABLE `fa_users`
 --
 ALTER TABLE `fa_index`
   ADD CONSTRAINT `fa_index_ibfk_1` FOREIGN KEY (`page`) REFERENCES `fa_readings` (`page`) ON DELETE SET NULL ON UPDATE SET NULL;
+
+--
+-- Constraints for table `fa_user_meetings`
+--
+ALTER TABLE `fa_user_meetings`
+  ADD CONSTRAINT `fa_user_meetings_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `fa_users` (`id`);
 
 --
 -- Constraints for table `fa_user_readings`
