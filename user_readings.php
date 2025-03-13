@@ -45,6 +45,18 @@ if ($conn->connect_error) {
 
 $user_id = $_SESSION['user_id'];
 
+// Fetch user's meetings
+$meetings_query = "SELECT meeting_date, title FROM fa_user_meetings WHERE user_id = ?";
+$meetings_stmt = $conn->prepare($meetings_query);
+$meetings_stmt->bind_param("i", $user_id);
+$meetings_stmt->execute();
+$meetings_result = $meetings_stmt->get_result();
+$meetings = [];
+while ($row = $meetings_result->fetch_assoc()) {
+    $meetings[$row['meeting_date']] = $row['title'];
+}
+$meetings_stmt->close();
+
 // Check if a date is supplied
 if (isset($_GET['date'])) {
     // Convert m/d/yy to Y-m-d for database query
@@ -160,10 +172,12 @@ if (isset($_GET['date'])) {
                             $read_date = new DateTime($row['read_date']);
                             $day_of_week = $read_date->format('l');
                             $formatted_date = $read_date->format('n/j/y');
+                            $meeting_title = isset($meetings[$row['read_date']]) ? ' - ' . htmlspecialchars($meetings[$row['read_date']]) : '';
+                            $display_text = $formatted_date . $meeting_title;
                             if ($day_of_week === 'Tuesday') {
-                                echo '<b><i>' . htmlspecialchars($formatted_date) . '</i></b>';
+                                echo '<b><i>' . htmlspecialchars($display_text) . '</i></b>';
                             } else {
-                                echo htmlspecialchars($formatted_date);
+                                echo htmlspecialchars($display_text);
                             }
                         }
                         ?>
