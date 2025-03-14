@@ -1,6 +1,8 @@
 <?php
 session_start(); // Start session to track logged-in user
 
+date_default_timezone_set('America/Chicago');
+
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -60,8 +62,8 @@ if ($conn->connect_error) {
 
 $user_id = $_SESSION['user_id'];
 
-// Fetch user's meetings
-$meetings_query = "SELECT meeting_date, title FROM fa_user_meetings WHERE user_id = ?";
+// Fetch user's meetings (only with title and no_meeting = 0)
+$meetings_query = "SELECT meeting_date, title FROM fa_user_meetings WHERE user_id = ? AND title IS NOT NULL AND no_meeting = 0";
 $meetings_stmt = $conn->prepare($meetings_query);
 $meetings_stmt->bind_param("i", $user_id);
 $meetings_stmt->execute();
@@ -73,6 +75,7 @@ while ($row = $meetings_result->fetch_assoc()) {
 $meetings_stmt->close();
 
 // Check if a date is supplied
+$filter_active = false;
 if (isset($_GET['date'])) {
     // Convert m/d/yy to Y-m-d for database query
     $date_input = trim($_GET['date']);
@@ -80,6 +83,7 @@ if (isset($_GET['date'])) {
     if ($date === false) {
         $error = "Invalid date format. Use m/d/yy (e.g., 3/13/25).";
     } else {
+        $filter_active = true;
         $read_date = $date->format('Y-m-d'); // e.g., "2025-03-13"
         $display_date = $date->format('n/j/y'); // e.g., "3/13/25"
         
@@ -157,10 +161,40 @@ if (isset($_GET['date'])) {
         .error {
             color: red;
         }
+        .navigation {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .navigation .left {
+            flex: 0 0 auto;
+        }
+        .navigation a {
+            margin: 0 10px;
+            text-decoration: none;
+            color: #0066cc;
+        }
+        .navigation a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
-    <h1><a href="user_readings.php">My Reading History</a></h1>
+    <div class="navigation">
+        <div class="left">
+            <a href="toc.php">Contents</a> | <a href="page.php">Today</a>
+        </div>
+    </div>
+
+    <?php
+    // Conditionally render "My Reading History" as link or plain text
+    if ($filter_active) {
+        echo '<h1><a href="user_readings.php">My Reading History</a></h1>';
+    } else {
+        echo '<h1>My Reading History</h1>';
+    }
+    ?>
 
     <?php if (isset($error)): ?>
         <p class="error"><?php echo htmlspecialchars($error); ?></p>
@@ -192,7 +226,7 @@ if (isset($_GET['date'])) {
                             $formatted_date = $read_date->format('n/j/y');
                             $meeting_title = isset($meetings[$row['read_date']]) ? ' - ' . htmlspecialchars($meetings[$row['read_date']]) : '';
                             $display_text = $formatted_date . $meeting_title;
-                            if ($day_of_week === 'Tuesday') {
+                            if (isset($meetings[$row['read_date']])) {
                                 echo '<b><i>' . htmlspecialchars($display_text) . '</i></b>';
                             } else {
                                 echo htmlspecialchars($display_text);
