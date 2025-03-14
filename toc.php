@@ -87,9 +87,35 @@ $result = $conn->query($query);
         a:hover {
             text-decoration: underline;
         }
+        .navigation {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .navigation .left {
+            flex: 0 0 auto;
+        }
+        .navigation a {
+            margin: 0 10px;
+            text-decoration: none;
+            color: #0066cc;
+        }
+        .navigation a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
+    <div class="navigation">
+        <div class="left">
+            <?php if (isset($_SESSION['user_id'])): ?>
+                <a href="user_readings.php">History</a> | <a href="page.php">Today</a>
+            <?php else: ?>
+                <a href="page.php">Today</a> | <a href="login.php?redirect=toc.php">Login</a>
+            <?php endif; ?>
+        </div>
+    </div>
     <h1>Table of Contents</h1>
 
     <?php if ($result->num_rows > 0): ?>
