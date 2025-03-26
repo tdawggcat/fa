@@ -53,6 +53,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_read']) && isset
     }
 }
 
+// Handle "Add Note" submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_note' && isset($_SESSION['user_id'])) {
+    $page = $_POST['page'] ?? '';
+    $meeting_id = $_POST['meeting_id'] === '' ? null : $_POST['meeting_id'];
+    $note = $_POST['note'] ?? '';
+    $user_id = $_SESSION['user_id'];
+
+    $cred_file = '/home/tdawggcat/.mysql_user';
+    if (!file_exists($cred_file)) {
+        $response = ['success' => false, 'error' => 'Credentials file not found'];
+    } else {
+        $credentials = trim(file_get_contents($cred_file));
+        list($username, $password) = explode(':', $credentials, 2);
+        $conn = new mysqli('localhost', trim($username), trim($password), 'tdawggcat_fa');
+        
+        if ($conn->connect_error) {
+            $response = ['success' => false, 'error' => 'Database connection failed'];
+        } else {
+            $stmt = $conn->prepare("INSERT INTO fa_notes (user_id, reading_id, meeting_id, note) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("isis", $user_id, $page, $meeting_id, $note);
+            $success = $stmt->execute();
+            
+            // Get updated note count
+            $count_stmt = $conn->prepare("SELECT COUNT(*) as count FROM fa_notes WHERE user_id = ? AND reading_id = ?");
+            $count_stmt->bind_param("is", $user_id, $page);
+            $count_stmt->execute();
+            $count_result = $count_stmt->get_result();
+            $note_count = $count_result->fetch_assoc()['count'];
+            
+            $response = ['success' => $success, 'note_count' => $note_count];
+            $stmt->close();
+            $count_stmt->close();
+            $conn->close();
+        }
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    ob_end_flush();
+    exit();
+}
+
 // Database connection
 $cred_file = '/home/tdawggcat/.mysql_user';
 if (!file_exists($cred_file)) die("Error: Credentials file not found");
@@ -101,6 +143,41 @@ if ($page && isset($_SESSION['user_id'])) {
     }
     $stmt->close();
 }
+
+// Fetch notes with meeting data for the current page and user
+$notes = [];
+$note_count = 0;
+if ($page && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $stmt = $conn->prepare("
+        SELECT n.meeting_id, n.note, m.meeting_date, m.title 
+        FROM fa_notes n
+        LEFT JOIN fa_user_meetings m ON n.meeting_id = m.id
+        WHERE n.user_id = ? AND n.reading_id = ?
+    ");
+    $stmt->bind_param("is", $user_id, $page);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $notes[] = $row;
+    }
+    $note_count = count($notes);
+    $stmt->close();
+}
+
+// Fetch meetings for the user
+$meetings = [];
+if (isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $stmt = $conn->prepare("SELECT id, meeting_date, title FROM fa_user_meetings WHERE user_id = ? ORDER BY meeting_date DESC");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $meetings[] = $row;
+    }
+    $stmt->close();
+}
 ?>
 
 <!DOCTYPE html>
@@ -111,7 +188,7 @@ if ($page && isset($_SESSION['user_id'])) {
     <title>Page - Families Anonymous Readings</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.5; }
-        select { margin: 10px 0; padding: 5px; }
+        select { margin: 10px 0; padding: 5px; width: 100%; }
         .page-date { font-size: 1.2em; font-weight: bold; }
         .page-title { font-size: 1.5em; font-weight: bold; margin: 10px 0; }
         .page-reading p { margin: 0 0 0; text-indent: 1em; }
@@ -129,13 +206,22 @@ if ($page && isset($_SESSION['user_id'])) {
         .navigation .copy-button { margin: 0 10px; cursor: pointer; color: blue; }
         .navigation .copy-button:hover { text-decoration: underline; }
         #copyFeedback { position: fixed; top: 20px; right: 20px; background-color: #d4edda; color: #155724; padding: 10px; border-radius: 5px; display: none; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-        .read-button, .logout-button { margin-top: 10px; padding: 5px 10px; }
+        .read-button, .logout-button, .notes-button, .add-note-button { margin-top: 10px; padding: 5px 10px; cursor: pointer; border: 1px solid #ccc; background-color: #fff; color: #000; border-radius: 3px; min-width: 60px; text-align: center; }
+        .read-button:hover, .logout-button:hover, .notes-button:hover, .add-note-button:hover { background-color: #f0f0f0; }
         .button-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
-        .left-buttons, .right-buttons { flex: 0 0 auto; }
+        .left-buttons, .middle-buttons, .right-buttons { flex: 0 0 auto; }
+        .middle-buttons { display: flex; gap: 10px; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
-        .modal-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); text-align: center; }
+        .modal-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); text-align: center; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .notes-modal-content { text-align: left; }
+        .notes-modal-content hr { margin: 10px 0; }
         .modal-buttons { margin-top: 15px; }
         .modal-buttons button { padding: 5px 15px; margin: 0 10px; cursor: pointer; }
+        .styling-buttons { margin: 10px 0; display: flex; gap: 5px; justify-content: center; }
+        .styling-buttons button { padding: 5px 10px; border: 1px solid #ccc; background-color: #f0f0f0; cursor: pointer; }
+        .styling-buttons button:hover { background-color: #e0e0e0; }
+        #noteText { width: 100%; min-height: 100px; padding: 5px; border: 1px solid #ccc; margin-bottom: 10px; outline: none; }
+        #noteText:empty:before { content: attr(placeholder); color: #999; }
     </style>
 </head>
 <body>
@@ -150,7 +236,7 @@ if ($page && isset($_SESSION['user_id'])) {
             $row = $result->fetch_assoc();
             echo '<div class="navigation">';
             echo '<div class="left">';
-            echo '<a href="toc.php">Contents</a>';
+            echo '<a href="toc.php">Contents</a> | <a href="book_index.php">Index</a>';
             if (isset($_SESSION['user_id'])) echo ' | <a href="user_readings.php">History</a>';
             else echo ' | <a href="' . ($page ? "login.php?redirect=page.php?page=" . urlencode($page) : "login.php?redirect=page.php") . '">Login</a>';
             echo '</div>';
@@ -181,6 +267,10 @@ if ($page && isset($_SESSION['user_id'])) {
                     echo '</form>';
                 }
                 echo '</div>';
+                echo '<div class="middle-buttons">';
+                echo '<button id="notesButton" class="notes-button">Notes' . ($note_count > 0 ? " ($note_count)" : "") . '</button>';
+                echo '<button id="addNoteButton" class="add-note-button">Add Note</button>';
+                echo '</div>';
                 echo '<div class="right-buttons">';
                 echo '<form method="post">';
                 echo '<button type="submit" name="logout" class="logout-button">Logout</button>';
@@ -195,10 +285,12 @@ if ($page && isset($_SESSION['user_id'])) {
     } else {
         echo '<div class="navigation">';
         echo '<div class="left">';
-        echo '<a href="toc.php">Contents</a>';
+        echo '<a href="toc.php">Contents</a> | <a href="book_index.php">Index</a>';
         if (isset($_SESSION['user_id'])) echo ' | <a href="user_readings.php">History</a>';
         else echo ' | <a href="login.php?redirect=page.php">Login</a>';
         echo '</div>';
+        echo '<div class="middle"></div>';
+        echo '<div class="right"></div>';
         echo '</div>';
         echo '<h2>Select a Page</h2>';
         echo '<form method="get" action="page.php">';
@@ -214,6 +306,10 @@ if ($page && isset($_SESSION['user_id'])) {
         if (isset($_SESSION['user_id'])) {
             echo '<div class="button-row">';
             echo '<div class="left-buttons"></div>';
+            echo '<div class="middle-buttons">';
+            echo '<button id="notesButton" class="notes-button">Notes</button>';
+            echo '<button id="addNoteButton" class="add-note-button">Add Note</button>';
+            echo '</div>';
             echo '<div class="right-buttons">';
             echo '<form method="post">';
             echo '<button type="submit" name="logout" class="logout-button">Logout</button>';
@@ -222,11 +318,9 @@ if ($page && isset($_SESSION['user_id'])) {
             echo '</div>';
         }
     }
-    $conn->close();
-    ob_end_flush();
     ?>
 
-    <!-- Custom Modal -->
+    <!-- Meeting Modal -->
     <div id="meetingModal" class="modal">
         <div class="modal-content">
             <p>No meeting exists for today. Add one?</p>
@@ -234,6 +328,75 @@ if ($page && isset($_SESSION['user_id'])) {
                 <button id="modalYes">Yes</button>
                 <button id="modalNo">No</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Notes Modal -->
+    <div id="notesModal" class="modal">
+        <div class="modal-content notes-modal-content">
+            <h2>Notes for Page <?php echo htmlspecialchars($page); ?></h2>
+            <?php
+            if (!empty($notes)) {
+                foreach ($notes as $index => $note) {
+                    if ($note['meeting_id'] && $note['meeting_date'] && $note['title']) {
+                        echo '<b><i>' . htmlspecialchars($note['meeting_date'] . ' - ' . $note['title']) . '</i></b><br>';
+                    }
+                    echo $note['note'];
+                    if ($index < count($notes) - 1) {
+                        echo '<hr>';
+                    }
+                }
+            } else {
+                echo '<p>No notes available for this page.</p>';
+            }
+            ?>
+            <div class="modal-buttons">
+                <button onclick="hideNotesModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Note Modal -->
+    <div id="addNoteModal" class="modal">
+        <div class="modal-content">
+            <h2>Add a Note</h2>
+            <form id="addNoteForm">
+                <label for="notePage">Page:</label>
+                <select name="page" id="notePage">
+                    <?php
+                    $pages_result->data_seek(0);
+                    while ($row = $pages_result->fetch_assoc()) {
+                        $selected = $row['page'] === $page ? ' selected' : '';
+                        echo '<option value="' . htmlspecialchars($row['page']) . '"' . $selected . '>' . htmlspecialchars($row['page']) . ' - ' . htmlspecialchars($row['title']) . '</option>';
+                    }
+                    ?>
+                </select>
+
+                <label for="noteMeeting">Meeting:</label>
+                <select name="meeting_id" id="noteMeeting">
+                    <option value="">No Meeting</option>
+                    <?php
+                    foreach ($meetings as $meeting) {
+                        $selected = $meeting['meeting_date'] === $today ? ' selected' : '';
+                        echo '<option value="' . htmlspecialchars($meeting['id']) . '"' . $selected . '>' . htmlspecialchars($meeting['meeting_date'] . ' - ' . $meeting['title']) . '</option>';
+                    }
+                    ?>
+                </select>
+
+                <label for="noteText">Note:</label>
+                <div class="styling-buttons">
+                    <button type="button" onclick="applyStyle('bold')">B</button>
+                    <button type="button" onclick="applyStyle('italic')">I</button>
+                    <button type="button" onclick="applyStyle('underline')">U</button>
+                    <button type="button" onclick="applyStyle('highlight')">H</button>
+                </div>
+                <div id="noteText" contenteditable="true" placeholder="Type your note here..."></div>
+
+                <div class="modal-buttons">
+                    <button type="submit">Save</button>
+                    <button type="button" onclick="hideAddNoteModal()">Cancel</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -360,6 +523,85 @@ if ($page && isset($_SESSION['user_id'])) {
             window.getSelection().removeAllRanges();
             document.body.removeChild(tempDiv);
         }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const notesButton = document.getElementById('notesButton');
+            if (notesButton) {
+                notesButton.addEventListener('click', function() {
+                    console.log('Notes button clicked');
+                    const modal = document.getElementById('notesModal');
+                    if (modal) {
+                        modal.style.display = 'block';
+                        document.body.style.overflow = 'hidden';
+                    }
+                });
+            }
+
+            const addNoteButton = document.getElementById('addNoteButton');
+            if (addNoteButton) {
+                addNoteButton.addEventListener('click', function() {
+                    console.log('Add Note button clicked');
+                    const modal = document.getElementById('addNoteModal');
+                    if (modal) modal.style.display = 'block';
+                });
+            }
+
+            const addNoteForm = document.getElementById('addNoteForm');
+            if (addNoteForm) {
+                addNoteForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const formData = new FormData(addNoteForm);
+                    formData.append('action', 'add_note');
+                    formData.set('note', document.getElementById('noteText').innerHTML);
+
+                    fetch('page.php', {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    })
+                    .then(response => {
+                        if (!response.ok) throw new Error('Add note failed: ' + response.status);
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            hideAddNoteModal();
+                            const notesButton = document.getElementById('notesButton');
+                            notesButton.textContent = `Notes (${data.note_count})`;
+                            window.location.reload();
+                        } else {
+                            console.error('Add note failed:', data.error);
+                        }
+                    })
+                    .catch(err => console.error('Error adding note:', err));
+                });
+            }
+        });
+
+        function hideNotesModal() {
+            const modal = document.getElementById('notesModal');
+            if (modal) {
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        function hideAddNoteModal() {
+            const modal = document.getElementById('addNoteModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function applyStyle(style) {
+            const editor = document.getElementById('noteText');
+            editor.focus();
+            if (style === 'highlight') {
+                document.execCommand('hiliteColor', false, '#ffff99');
+            } else {
+                document.execCommand(style, false, null);
+            }
+        }
+
+    <?php $conn->close(); ob_end_flush(); ?>
     </script>
 </body>
 </html>
