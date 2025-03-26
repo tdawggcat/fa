@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Mar 13, 2025 at 09:00 PM
+-- Generation Time: Mar 26, 2025 at 03:28 PM
 -- Server version: 8.0.41
--- PHP Version: 8.3.17
+-- PHP Version: 8.3.19
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -34,6 +34,21 @@ CREATE TABLE `fa_index` (
   `page` varchar(10) DEFAULT NULL,
   `suffix` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
   `is_in_title` tinyint(1) DEFAULT '0'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fa_notes`
+--
+
+CREATE TABLE `fa_notes` (
+  `id` int NOT NULL,
+  `user_id` int NOT NULL,
+  `reading_id` varchar(10) DEFAULT NULL,
+  `meeting_id` int DEFAULT NULL,
+  `note` text NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
@@ -76,7 +91,8 @@ CREATE TABLE `fa_user_meetings` (
   `id` int NOT NULL,
   `user_id` int NOT NULL,
   `meeting_date` date NOT NULL,
-  `title` varchar(255) NOT NULL
+  `title` varchar(255) DEFAULT NULL,
+  `no_meeting` tinyint(1) NOT NULL DEFAULT '0'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
@@ -103,6 +119,15 @@ ALTER TABLE `fa_index`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `idx_word_page` (`word`,`page`),
   ADD KEY `fa_index_ibfk_1` (`page`);
+
+--
+-- Indexes for table `fa_notes`
+--
+ALTER TABLE `fa_notes`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `user_id` (`user_id`),
+  ADD KEY `meeting_id` (`meeting_id`),
+  ADD KEY `fa_notes_reading_id_fk` (`reading_id`);
 
 --
 -- Indexes for table `fa_readings`
@@ -144,6 +169,12 @@ ALTER TABLE `fa_index`
   MODIFY `id` int NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `fa_notes`
+--
+ALTER TABLE `fa_notes`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `fa_users`
 --
 ALTER TABLE `fa_users`
@@ -170,6 +201,14 @@ ALTER TABLE `fa_user_readings`
 --
 ALTER TABLE `fa_index`
   ADD CONSTRAINT `fa_index_ibfk_1` FOREIGN KEY (`page`) REFERENCES `fa_readings` (`page`) ON DELETE SET NULL ON UPDATE SET NULL;
+
+--
+-- Constraints for table `fa_notes`
+--
+ALTER TABLE `fa_notes`
+  ADD CONSTRAINT `fa_notes_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `fa_users` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fa_notes_ibfk_2` FOREIGN KEY (`meeting_id`) REFERENCES `fa_user_meetings` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fa_notes_reading_id_fk` FOREIGN KEY (`reading_id`) REFERENCES `fa_readings` (`page`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `fa_user_meetings`
