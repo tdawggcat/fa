@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Mar 26, 2025 at 03:28 PM
+-- Generation Time: Mar 26, 2025 at 09:03 PM
 -- Server version: 8.0.41
 -- PHP Version: 8.3.19
 
@@ -20,6 +20,22 @@ SET time_zone = "+00:00";
 --
 -- Database: `tdawggcat_fa`
 --
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fa_annotations`
+--
+
+CREATE TABLE `fa_annotations` (
+  `id` int NOT NULL,
+  `user_id` int NOT NULL,
+  `page` varchar(10) NOT NULL,
+  `part` enum('reading','today_i_will') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `start_pos` int NOT NULL,
+  `end_pos` int NOT NULL,
+  `style` enum('highlight','underline') NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
@@ -78,7 +94,8 @@ CREATE TABLE `fa_users` (
   `full_name` varchar(100) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
   `active` tinyint(1) DEFAULT '1',
-  `admin` tinyint(1) DEFAULT '0'
+  `admin` tinyint(1) DEFAULT '0',
+  `annotations` tinyint DEFAULT '1'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
@@ -111,6 +128,13 @@ CREATE TABLE `fa_user_readings` (
 --
 -- Indexes for dumped tables
 --
+
+--
+-- Indexes for table `fa_annotations`
+--
+ALTER TABLE `fa_annotations`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `user_id` (`user_id`);
 
 --
 -- Indexes for table `fa_index`
@@ -163,6 +187,12 @@ ALTER TABLE `fa_user_readings`
 --
 
 --
+-- AUTO_INCREMENT for table `fa_annotations`
+--
+ALTER TABLE `fa_annotations`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `fa_index`
 --
 ALTER TABLE `fa_index`
@@ -195,6 +225,12 @@ ALTER TABLE `fa_user_readings`
 --
 -- Constraints for dumped tables
 --
+
+--
+-- Constraints for table `fa_annotations`
+--
+ALTER TABLE `fa_annotations`
+  ADD CONSTRAINT `fa_annotations_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `fa_users` (`id`);
 
 --
 -- Constraints for table `fa_index`
