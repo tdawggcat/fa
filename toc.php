@@ -49,7 +49,7 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
-$query = "SELECT page, date, title FROM fa_readings ORDER BY sort_key";
+$query = "SELECT page, date, title FROM fa_readings WHERE sort_key >= -4 ORDER BY sort_key";
 $result = $conn->query($query);
 ?>
 
