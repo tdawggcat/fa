@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_read']) && isset
 
 // Handle "Add Note" submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_note' && isset($_SESSION['user_id'])) {
-    $page = $_POST['page'] ?? '';
+    $page = $_POST['page'] === '' ? null : $_POST['page'];
     $meeting_id = $_POST['meeting_id'] === '' ? null : $_POST['meeting_id'];
     $note = $_POST['note'] ?? '';
     $user_id = $_SESSION['user_id'];
@@ -72,19 +72,160 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $response = ['success' => false, 'error' => 'Database connection failed'];
         } else {
             $stmt = $conn->prepare("INSERT INTO fa_notes (user_id, reading_id, meeting_id, note) VALUES (?, ?, ?, ?)");
-            $stmt->bind_param("isis", $user_id, $page, $meeting_id, $note);
+            $stmt->bind_param("isss", $user_id, $page, $meeting_id, $note);
             $success = $stmt->execute();
             
-            // Get updated note count
-            $count_stmt = $conn->prepare("SELECT COUNT(*) as count FROM fa_notes WHERE user_id = ? AND reading_id = ?");
-            $count_stmt->bind_param("is", $user_id, $page);
-            $count_stmt->execute();
-            $count_result = $count_stmt->get_result();
-            $note_count = $count_result->fetch_assoc()['count'];
+            if ($page) {
+                $count_stmt = $conn->prepare("SELECT COUNT(*) as count FROM fa_notes WHERE user_id = ? AND reading_id = ?");
+                $count_stmt->bind_param("is", $user_id, $page);
+                $count_stmt->execute();
+                $count_result = $count_stmt->get_result();
+                $note_count = $count_result->fetch_assoc()['count'];
+                $count_stmt->close();
+            } else {
+                $note_count = null;
+            }
             
             $response = ['success' => $success, 'note_count' => $note_count];
             $stmt->close();
-            $count_stmt->close();
+            $conn->close();
+        }
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    ob_end_flush();
+    exit();
+}
+
+// Handle "Book Notes" AJAX request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'get_book_notes' && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+
+    $cred_file = '/home/tdawggcat/.mysql_user';
+    if (!file_exists($cred_file)) {
+        $response = ['success' => false, 'error' => 'Credentials file not found'];
+    } else {
+        $credentials = trim(file_get_contents($cred_file));
+        list($username, $password) = explode(':', $credentials, 2);
+        $conn = new mysqli('localhost', trim($username), trim($password), 'tdawggcat_fa');
+        
+        if ($conn->connect_error) {
+            $response = ['success' => false, 'error' => 'Database connection failed'];
+        } else {
+            $stmt = $conn->prepare("
+                SELECT n.note, n.created_at, m.meeting_date, m.title 
+                FROM fa_notes n
+                LEFT JOIN fa_user_meetings m ON n.meeting_id = m.id
+                WHERE n.user_id = ? AND n.reading_id IS NULL
+                ORDER BY n.created_at DESC
+            ");
+            $stmt->bind_param("i", $user_id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $book_notes = [];
+            while ($row = $result->fetch_assoc()) {
+                $book_notes[] = $row;
+            }
+            $response = ['success' => true, 'notes' => $book_notes];
+            $stmt->close();
+            $conn->close();
+        }
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    ob_end_flush();
+    exit();
+}
+
+// Handle "Add Annotation" submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_annotation' && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $page = $_POST['page'];
+    $part = $_POST['part'];
+    $start_pos = (int)$_POST['start_pos'];
+    $end_pos = (int)$_POST['end_pos'];
+    $style = $_POST['style'];
+
+    $cred_file = '/home/tdawggcat/.mysql_user';
+    if (!file_exists($cred_file)) {
+        $response = ['success' => false, 'error' => 'Credentials file not found'];
+    } else {
+        $credentials = trim(file_get_contents($cred_file));
+        list($username, $password) = explode(':', $credentials, 2);
+        $conn = new mysqli('localhost', trim($username), trim($password), 'tdawggcat_fa');
+        
+        if ($conn->connect_error) {
+            $response = ['success' => false, 'error' => 'Database connection failed'];
+        } else {
+            $stmt = $conn->prepare("INSERT INTO fa_annotations (user_id, page, part, start_pos, end_pos, style) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("ississ", $user_id, $page, $part, $start_pos, $end_pos, $style);
+            $success = $stmt->execute();
+            $response = ['success' => $success];
+            $stmt->close();
+            $conn->close();
+        }
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    ob_end_flush();
+    exit();
+}
+
+// Handle "Delete Annotation" submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_annotation' && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $annotation_id = (int)$_POST['annotation_id'];
+
+    $cred_file = '/home/tdawggcat/.mysql_user';
+    if (!file_exists($cred_file)) {
+        $response = ['success' => false, 'error' => 'Credentials file not found'];
+    } else {
+        $credentials = trim(file_get_contents($cred_file));
+        list($username, $password) = explode(':', $credentials, 2);
+        $conn = new mysqli('localhost', trim($username), trim($password), 'tdawggcat_fa');
+        
+        if ($conn->connect_error) {
+            $response = ['success' => false, 'error' => 'Database connection failed'];
+        } else {
+            $stmt = $conn->prepare("DELETE FROM fa_annotations WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("ii", $annotation_id, $user_id);
+            $success = $stmt->execute();
+            $response = ['success' => $success];
+            $stmt->close();
+            $conn->close();
+        }
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    ob_end_flush();
+    exit();
+}
+
+// Handle "Toggle Annotations" submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_annotations' && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $state = (int)$_POST['state'];
+
+    $cred_file = '/home/tdawggcat/.mysql_user';
+    if (!file_exists($cred_file)) {
+        $response = ['success' => false, 'error' => 'Credentials file not found'];
+    } else {
+        $credentials = trim(file_get_contents($cred_file));
+        list($username, $password) = explode(':', $credentials, 2);
+        $conn = new mysqli('localhost', trim($username), trim($password), 'tdawggcat_fa');
+        
+        if ($conn->connect_error) {
+            $response = ['success' => false, 'error' => 'Database connection failed'];
+        } else {
+            $stmt = $conn->prepare("UPDATE fa_users SET annotations = ? WHERE id = ?");
+            $stmt->bind_param("ii", $state, $user_id);
+            $success = $stmt->execute();
+            $response = ['success' => $success];
+            $stmt->close();
             $conn->close();
         }
     }
@@ -144,16 +285,17 @@ if ($page && isset($_SESSION['user_id'])) {
     $stmt->close();
 }
 
-// Fetch notes with meeting data for the current page and user
+// Fetch notes with meeting data and created_at for the current page and user
 $notes = [];
 $note_count = 0;
 if ($page && isset($_SESSION['user_id'])) {
     $user_id = $_SESSION['user_id'];
     $stmt = $conn->prepare("
-        SELECT n.meeting_id, n.note, m.meeting_date, m.title 
+        SELECT n.meeting_id, n.note, n.created_at, m.meeting_date, m.title 
         FROM fa_notes n
         LEFT JOIN fa_user_meetings m ON n.meeting_id = m.id
         WHERE n.user_id = ? AND n.reading_id = ?
+        ORDER BY n.created_at DESC
     ");
     $stmt->bind_param("is", $user_id, $page);
     $stmt->execute();
@@ -175,6 +317,37 @@ if (isset($_SESSION['user_id'])) {
     $result = $stmt->get_result();
     while ($row = $result->fetch_assoc()) {
         $meetings[] = $row;
+    }
+    $stmt->close();
+}
+
+// Fetch user annotations preference
+$annotations_on = 1; // Default to on
+if (isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $stmt = $conn->prepare("SELECT annotations FROM fa_users WHERE id = ?");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($row = $result->fetch_assoc()) {
+        $annotations_on = (int)$row['annotations'];
+    }
+    $stmt->close();
+}
+
+// Fetch annotations for the current page
+$annotations = [];
+$annotation_count = 0;
+$has_failed_annotations = false;
+if ($page && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $stmt = $conn->prepare("SELECT id, part, start_pos, end_pos, style FROM fa_annotations WHERE user_id = ? AND page = ?");
+    $stmt->bind_param("is", $user_id, $page);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $annotations[] = $row;
+        $annotation_count++;
     }
     $stmt->close();
 }
@@ -206,22 +379,33 @@ if (isset($_SESSION['user_id'])) {
         .navigation .copy-button { margin: 0 10px; cursor: pointer; color: blue; }
         .navigation .copy-button:hover { text-decoration: underline; }
         #copyFeedback { position: fixed; top: 20px; right: 20px; background-color: #d4edda; color: #155724; padding: 10px; border-radius: 5px; display: none; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-        .read-button, .logout-button, .notes-button, .add-note-button { margin-top: 10px; padding: 5px 10px; cursor: pointer; border: 1px solid #ccc; background-color: #fff; color: #000; border-radius: 3px; min-width: 60px; text-align: center; }
-        .read-button:hover, .logout-button:hover, .notes-button:hover, .add-note-button:hover { background-color: #f0f0f0; }
+        #toggleFeedback { position: fixed; top: 20px; left: 20px; background-color: #d4edda; color: #155724; padding: 10px; border-radius: 5px; display: none; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .read-button, .logout-button, .notes-button, .manage-annotations-button { margin-top: 10px; padding: 5px 10px; cursor: pointer; border: 1px solid #ccc; background-color: #fff; color: #000; border-radius: 3px; min-width: 60px; text-align: center; }
+        .read-button:hover, .logout-button:hover, .notes-button:hover, .manage-annotations-button:hover { background-color: #f0f0f0; }
         .button-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
         .left-buttons, .middle-buttons, .right-buttons { flex: 0 0 auto; }
         .middle-buttons { display: flex; gap: 10px; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
         .modal-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); text-align: center; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
-        .notes-modal-content { text-align: left; }
+        .notes-modal-content { text-align: left; font-size: 14px; }
+        .notes-modal-content h2 { font-size: 1.2em; }
         .notes-modal-content hr { margin: 10px 0; }
-        .modal-buttons { margin-top: 15px; }
-        .modal-buttons button { padding: 5px 15px; margin: 0 10px; cursor: pointer; }
+        .note-timestamp { font-size: 12px; color: #666; margin-top: 5px; }
+        .modal-buttons { margin-top: 15px; display: flex; justify-content: space-between; }
+        .modal-buttons button { padding: 5px 15px; cursor: pointer; }
         .styling-buttons { margin: 10px 0; display: flex; gap: 5px; justify-content: center; }
         .styling-buttons button { padding: 5px 10px; border: 1px solid #ccc; background-color: #f0f0f0; cursor: pointer; }
         .styling-buttons button:hover { background-color: #e0e0e0; }
         #noteText { width: 100%; min-height: 100px; padding: 5px; border: 1px solid #ccc; margin-bottom: 10px; outline: none; }
         #noteText:empty:before { content: attr(placeholder); color: #999; }
+        #annotationPopup { position: absolute; background: white; border: 1px solid #ccc; padding: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 1000; display: none; }
+        #annotationPopup button { margin: 0 5px; padding: 3px 8px; cursor: pointer; }
+        .highlight { background-color: #ffff99; }
+        .underline { border-bottom: 2px solid #000; }
+        .annotation-failed { opacity: 0.5; }
+        .manage-annotations-list { text-align: left; max-height: 300px; overflow-y: auto; }
+        .manage-annotations-list div { margin: 10px 0; }
+        .manage-annotations-list .failed { color: red; }
     </style>
 </head>
 <body>
@@ -234,6 +418,12 @@ if (isset($_SESSION['user_id'])) {
 
         if ($result->num_rows > 0) {
             $row = $result->fetch_assoc();
+            $page_date = $row['date'];
+            $page_title = $row['title'];
+            $reading_text = $row['reading'];
+            $today_i_will_text = $row['today_i_will'];
+            $reading_plain = strip_tags($reading_text);
+            $today_i_will_plain = strip_tags($today_i_will_text);
             echo '<div class="navigation">';
             echo '<div class="left">';
             echo '<a href="toc.php">Contents</a> | <a href="book_index.php">Index</a>';
@@ -248,8 +438,8 @@ if (isset($_SESSION['user_id'])) {
             echo '</div>';
             echo '<div class="page-date">' . htmlspecialchars($row['date']) . '</div>';
             echo '<div class="page-title">' . htmlspecialchars($row['title']) . '</div>';
-            echo '<div class="page-reading">' . $row['reading'] . '</div>';
-            echo '<div class="today-i-will">' . $row['today_i_will'] . '</div>';
+            echo '<div class="page-reading" id="readingText">' . $reading_text . '</div>';
+            echo '<div class="today-i-will" id="todayIWillText">' . $today_i_will_text . '</div>';
             echo '<div class="page-number">Page ' . htmlspecialchars($row['page']) . '</div>';
 
             if (!empty($read_dates)) {
@@ -268,8 +458,11 @@ if (isset($_SESSION['user_id'])) {
                 }
                 echo '</div>';
                 echo '<div class="middle-buttons">';
+                echo '<button id="toggleAnnotations" class="notes-button">' . ($annotations_on ? '<s>Anno</s>' : 'Anno') . '</button>';
                 echo '<button id="notesButton" class="notes-button">Notes' . ($note_count > 0 ? " ($note_count)" : "") . '</button>';
-                echo '<button id="addNoteButton" class="add-note-button">Add Note</button>';
+                if ($annotations_on) {
+                    echo '<button id="manageAnnotationsButton" class="manage-annotations-button">Man Anno (' . ($has_failed_annotations ? '!' : $annotation_count) . ')</button>';
+                }
                 echo '</div>';
                 echo '<div class="right-buttons">';
                 echo '<form method="post">';
@@ -307,8 +500,11 @@ if (isset($_SESSION['user_id'])) {
             echo '<div class="button-row">';
             echo '<div class="left-buttons"></div>';
             echo '<div class="middle-buttons">';
+            echo '<button id="toggleAnnotations" class="notes-button">' . ($annotations_on ? '<s>Anno</s>' : 'Anno') . '</button>';
             echo '<button id="notesButton" class="notes-button">Notes</button>';
-            echo '<button id="addNoteButton" class="add-note-button">Add Note</button>';
+            if ($annotations_on) {
+                echo '<button id="manageAnnotationsButton" class="manage-annotations-button">Man Anno (' . ($has_failed_annotations ? '!' : $annotation_count) . ')</button>';
+            }
             echo '</div>';
             echo '<div class="right-buttons">';
             echo '<form method="post">';
@@ -334,24 +530,30 @@ if (isset($_SESSION['user_id'])) {
     <!-- Notes Modal -->
     <div id="notesModal" class="modal">
         <div class="modal-content notes-modal-content">
-            <h2>Notes for Page <?php echo htmlspecialchars($page); ?></h2>
-            <?php
-            if (!empty($notes)) {
-                foreach ($notes as $index => $note) {
-                    if ($note['meeting_id'] && $note['meeting_date'] && $note['title']) {
-                        echo '<b><i>' . htmlspecialchars($note['meeting_date'] . ' - ' . $note['title']) . '</i></b><br>';
+            <h2>Notes - Page <?php echo htmlspecialchars($page); ?> - <?php echo htmlspecialchars($page_date); ?> - <?php echo htmlspecialchars($page_title); ?></h2>
+            <div id="notesContent">
+                <?php
+                if (!empty($notes)) {
+                    foreach ($notes as $index => $note) {
+                        if ($note['meeting_id'] && $note['meeting_date'] && $note['title']) {
+                            echo '<b><i>' . htmlspecialchars($note['meeting_date'] . ' - ' . $note['title']) . '</i></b><br>';
+                        }
+                        echo $note['note'];
+                        $created_at = new DateTime($note['created_at']);
+                        echo '<div class="note-timestamp">' . $created_at->format('n/j/Y g:i A') . '</div>';
+                        if ($index < count($notes) - 1) {
+                            echo '<hr>';
+                        }
                     }
-                    echo $note['note'];
-                    if ($index < count($notes) - 1) {
-                        echo '<hr>';
-                    }
+                } else {
+                    echo '<p>No notes available for this page.</p>';
                 }
-            } else {
-                echo '<p>No notes available for this page.</p>';
-            }
-            ?>
+                ?>
+            </div>
             <div class="modal-buttons">
                 <button onclick="hideNotesModal()">Close</button>
+                <button onclick="showAddNoteModal()">Add</button>
+                <button id="toggleNotesButton" onclick="toggleNotes()">Book Notes</button>
             </div>
         </div>
     </div>
@@ -363,6 +565,7 @@ if (isset($_SESSION['user_id'])) {
             <form id="addNoteForm">
                 <label for="notePage">Page:</label>
                 <select name="page" id="notePage">
+                    <option value="">No Page</option>
                     <?php
                     $pages_result->data_seek(0);
                     while ($row = $pages_result->fetch_assoc()) {
@@ -400,8 +603,341 @@ if (isset($_SESSION['user_id'])) {
         </div>
     </div>
 
+    <!-- Manage Annotations Modal -->
+    <div id="manageAnnotationsModal" class="modal">
+        <div class="modal-content">
+            <h2>Manage Annotations</h2>
+            <div id="manageAnnotationsContent" class="manage-annotations-list"></div>
+            <div class="modal-buttons">
+                <button onclick="hideManageAnnotationsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Annotation Popup -->
+    <div id="annotationPopup">
+        <button onclick="addAnnotation('highlight')">Highlight</button>
+        <button onclick="addAnnotation('underline')">Underline</button>
+        <button onclick="hideAnnotationPopup()">Cancel</button>
+    </div>
+
     <div id="copyFeedback">Copied!</div>
+    <div id="toggleFeedback">Preference Saved</div>
     <script>
+        let isBookNotes = false;
+        let originalNotesContent = document.getElementById('notesContent') ? document.getElementById('notesContent').innerHTML : '';
+        let annotationsOn = <?php echo $annotations_on; ?>;
+        let currentSelection = null;
+        let hasDeletedAnnotations = false; // New flag
+
+        const annotations = <?php echo json_encode($annotations); ?>;
+        const readingPlain = <?php echo json_encode($reading_plain); ?>;
+        const todayIWillPlain = <?php echo json_encode($today_i_will_plain); ?>;
+        const readingText = <?php echo json_encode($reading_text); ?>;
+        const todayIWillText = <?php echo json_encode($today_i_will_text); ?>;
+
+        function applyAnnotations() {
+            if (!annotationsOn) return;
+
+            const readingEl = document.getElementById('readingText');
+            const todayEl = document.getElementById('todayIWillText');
+            let failed = false;
+
+            let readingHtml = readingText;
+            let todayHtml = todayIWillText;
+
+            const sortedAnnotations = [...annotations].sort((a, b) => b.start_pos - a.start_pos);
+
+            sortedAnnotations.forEach(annotation => {
+                const plainText = annotation.part === 'reading' ? readingPlain : todayIWillPlain;
+                let workingHtml = annotation.part === 'reading' ? readingHtml : todayHtml;
+
+                if (plainText && annotation.start_pos >= 0 && annotation.end_pos <= plainText.length && annotation.start_pos < annotation.end_pos) {
+                    let plainIndex = 0;
+                    let htmlIndex = 0;
+                    let htmlStartPos = -1;
+                    let htmlEndPos = -1;
+
+                    while (htmlIndex < workingHtml.length && plainIndex < plainText.length) {
+                        if (workingHtml[htmlIndex] === '<') {
+                            while (htmlIndex < workingHtml.length && workingHtml[htmlIndex] !== '>') {
+                                htmlIndex++;
+                            }
+                            htmlIndex++;
+                        } else {
+                            if (plainIndex === annotation.start_pos) htmlStartPos = htmlIndex;
+                            if (plainIndex === annotation.end_pos - 1) htmlEndPos = htmlIndex + 1;
+                            plainIndex++;
+                            htmlIndex++;
+                        }
+                        if (htmlStartPos !== -1 && htmlEndPos !== -1) break;
+                    }
+
+                    if (htmlStartPos === -1 || htmlEndPos === -1) {
+                        failed = true;
+                    } else {
+                        const before = workingHtml.substring(0, htmlStartPos);
+                        const annotated = workingHtml.substring(htmlStartPos, htmlEndPos);
+                        const after = workingHtml.substring(htmlEndPos);
+                        workingHtml = `${before}<span class="${annotation.style}" data-annotation-id="${annotation.id}">${annotated}</span>${after}`;
+
+                        if (annotation.part === 'reading') {
+                            readingHtml = workingHtml;
+                        } else {
+                            todayHtml = workingHtml;
+                        }
+                    }
+                } else {
+                    failed = true;
+                }
+            });
+
+            readingEl.innerHTML = readingHtml;
+            todayEl.innerHTML = todayHtml;
+
+            if (failed) {
+                document.getElementById('manageAnnotationsButton').textContent = 'Man Anno (!)';
+            } else {
+                document.getElementById('manageAnnotationsButton').textContent = `Man Anno (${annotations.length})`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            applyAnnotations();
+
+            // Add selectionchange listener
+            document.addEventListener('selectionchange', function() {
+                if (!currentSelection || !currentSelection.part) return;
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    currentSelection.range = selection.getRangeAt(0);
+                }
+            });
+
+            const toggleButton = document.getElementById('toggleAnnotations');
+            if (toggleButton) {
+                toggleButton.addEventListener('click', function() {
+                    annotationsOn = !annotationsOn;
+                    toggleButton.innerHTML = annotationsOn ? '<s>Anno</s>' : 'Anno';
+                    const feedback = document.getElementById('toggleFeedback');
+                    feedback.style.display = 'block';
+                    setTimeout(() => feedback.style.display = 'none', 1000);
+
+                    fetch('page.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: 'action=toggle_annotations&state=' + (annotationsOn ? 1 : 0)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        }
+                    })
+                    .catch(err => console.error('Error toggling annotations:', err));
+                });
+            }
+
+            const readingEl = document.getElementById('readingText');
+            const todayEl = document.getElementById('todayIWillText');
+            [readingEl, todayEl].forEach(el => {
+                if (el) {
+                    el.addEventListener('mouseup', showAnnotationPopup);
+                    el.addEventListener('touchend', showAnnotationPopup);
+                }
+            });
+
+            const notesButton = document.getElementById('notesButton');
+            if (notesButton) {
+                notesButton.addEventListener('click', function() {
+                    const modal = document.getElementById('notesModal');
+                    if (modal) {
+                        modal.style.display = 'block';
+                        document.body.style.overflow = 'hidden';
+                        originalNotesContent = document.getElementById('notesContent').innerHTML;
+                        isBookNotes = false;
+                        document.getElementById('toggleNotesButton').textContent = 'Book Notes';
+                        document.querySelector('#notesModal h2').textContent = 'Notes - Page <?php echo htmlspecialchars($page); ?> - <?php echo htmlspecialchars($page_date); ?> - <?php echo htmlspecialchars($page_title); ?>';
+                    }
+                });
+            }
+
+            const manageButton = document.getElementById('manageAnnotationsButton');
+            if (manageButton) {
+                manageButton.addEventListener('click', showManageAnnotationsModal);
+            }
+
+            const addNoteForm = document.getElementById('addNoteForm');
+            if (addNoteForm) {
+                addNoteForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const formData = new FormData(addNoteForm);
+                    formData.append('action', 'add_note');
+                    formData.set('note', document.getElementById('noteText').innerHTML);
+
+                    fetch('page.php', {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    })
+                    .then(response => {
+                        if (!response.ok) throw new Error('Add note failed: ' + response.status);
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            hideAddNoteModal();
+                            const notesButton = document.getElementById('notesButton');
+                            if (data.note_count !== null) {
+                                notesButton.textContent = `Notes (${data.note_count})`;
+                            }
+                            window.location.reload();
+                        } else {
+                            console.error('Add note failed:', data.error);
+                        }
+                    })
+                    .catch(err => console.error('Error adding note:', err));
+                });
+            }
+        });
+
+        function showAnnotationPopup(e) {
+            if (!annotationsOn || !window.getSelection().toString()) return;
+            const selection = window.getSelection();
+            const range = selection.getRangeAt(0);
+            const part = e.target.closest('#readingText') ? 'reading' : 'today_i_will';
+            currentSelection = { part, range };
+            const popup = document.getElementById('annotationPopup');
+            const rect = range.getBoundingClientRect();
+            popup.style.top = `${rect.bottom + window.scrollY}px`;
+            popup.style.left = `${rect.left + window.scrollX}px`;
+            popup.style.display = 'block';
+        }
+
+        function hideAnnotationPopup() {
+            document.getElementById('annotationPopup').style.display = 'none';
+            currentSelection = null;
+        }
+
+        function addAnnotation(style) {
+            if (!currentSelection || !currentSelection.range) {
+                console.error('No stored range available');
+                hideAnnotationPopup();
+                return;
+            }
+            const { part, range } = currentSelection;
+            const plainText = part === 'reading' ? readingPlain : todayIWillPlain;
+            const container = part === 'reading' ? document.getElementById('readingText') : document.getElementById('todayIWillText');
+
+            let startPos = -1;
+            let endPos = -1;
+            let plainIndex = 0;
+            const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+            let node;
+
+            while ((node = walker.nextNode())) {
+                const nodeText = node.nodeValue;
+                const nodeLength = nodeText.length;
+                const rangeStartNode = range.startContainer;
+                const rangeEndNode = range.endContainer;
+
+                if (startPos === -1 && (node === rangeStartNode || (rangeStartNode.nodeType === Node.ELEMENT_NODE && rangeStartNode.contains(node)))) {
+                    startPos = plainIndex + (node === rangeStartNode ? range.startOffset : 0);
+                }
+
+                if (endPos === -1 && (node === rangeEndNode || (rangeEndNode.nodeType === Node.ELEMENT_NODE && rangeEndNode.contains(node)))) {
+                    endPos = plainIndex + (node === rangeEndNode ? range.endOffset : nodeLength);
+                }
+
+                if (startPos !== -1 && endPos !== -1) break;
+
+                plainIndex += nodeLength;
+            }
+
+            if (startPos !== -1 && endPos === -1) {
+                endPos = plainIndex;
+            }
+
+            if (startPos === -1 || endPos === -1 || startPos >= endPos || startPos < 0 || endPos > plainText.length) {
+                console.error('Invalid selection range:', { startPos, endPos, plainTextLength: plainText.length });
+                hideAnnotationPopup();
+                return;
+            }
+
+            fetch('page.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+                body: `action=add_annotation&page=<?php echo urlencode($page); ?>&part=${part}&start_pos=${startPos}&end_pos=${endPos}&style=${style}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    console.error('Annotation failed:', data.error);
+                }
+            })
+            .catch(err => console.error('Error adding annotation:', err));
+
+            hideAnnotationPopup();
+        }
+
+        function showManageAnnotationsModal() {
+            const modal = document.getElementById('manageAnnotationsModal');
+            const content = document.getElementById('manageAnnotationsContent');
+            let html = '';
+            let failedCount = 0;
+
+            annotations.forEach(annotation => {
+                const plainText = annotation.part === 'reading' ? readingPlain : todayIWillPlain;
+                const isFailed = !plainText || annotation.start_pos < 0 || annotation.end_pos > plainText.length || annotation.start_pos >= annotation.end_pos;
+                if (isFailed) failedCount++;
+                const snippet = plainText && !isFailed ? plainText.substring(annotation.start_pos, annotation.end_pos) : 'Misplaced';
+                html += `
+                    <div class="${isFailed ? 'failed' : ''}">
+                        <strong>${annotation.part === 'reading' ? 'Reading' : 'Today I Will'}:</strong> 
+                        <span class="${annotation.style}">${snippet}</span>
+                        <button onclick="deleteAnnotation(${annotation.id})">Delete</button>
+                    </div>`;
+            });
+
+            content.innerHTML = html;
+            modal.style.display = 'block';
+            document.getElementById('manageAnnotationsButton').textContent = `Man Anno (${failedCount > 0 ? '!' : annotations.length})`;
+        }
+
+        function hideManageAnnotationsModal() {
+            const modal = document.getElementById('manageAnnotationsModal');
+            if (hasDeletedAnnotations) {
+                window.location.reload();
+                hasDeletedAnnotations = false; // Redundant due to reload, but for clarity
+            } else {
+                modal.style.display = 'none';
+            }
+        }
+
+        function deleteAnnotation(id) {
+            fetch('page.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+                body: `action=delete_annotation&annotation_id=${id}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const index = annotations.findIndex(a => a.id === id);
+                    if (index !== -1) {
+                        annotations.splice(index, 1);
+                    }
+                    hasDeletedAnnotations = true;
+                    showManageAnnotationsModal();
+                } else {
+                    console.error('Deletion failed:', data.error);
+                }
+            })
+            .catch(err => console.error('Error deleting annotation:', err));
+        }
+
         const readButton = document.getElementById('readButton');
         if (readButton) {
             readButton.addEventListener('click', function(e) {
@@ -524,60 +1060,6 @@ if (isset($_SESSION['user_id'])) {
             document.body.removeChild(tempDiv);
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            const notesButton = document.getElementById('notesButton');
-            if (notesButton) {
-                notesButton.addEventListener('click', function() {
-                    console.log('Notes button clicked');
-                    const modal = document.getElementById('notesModal');
-                    if (modal) {
-                        modal.style.display = 'block';
-                        document.body.style.overflow = 'hidden';
-                    }
-                });
-            }
-
-            const addNoteButton = document.getElementById('addNoteButton');
-            if (addNoteButton) {
-                addNoteButton.addEventListener('click', function() {
-                    console.log('Add Note button clicked');
-                    const modal = document.getElementById('addNoteModal');
-                    if (modal) modal.style.display = 'block';
-                });
-            }
-
-            const addNoteForm = document.getElementById('addNoteForm');
-            if (addNoteForm) {
-                addNoteForm.addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    const formData = new FormData(addNoteForm);
-                    formData.append('action', 'add_note');
-                    formData.set('note', document.getElementById('noteText').innerHTML);
-
-                    fetch('page.php', {
-                        method: 'POST',
-                        body: formData,
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                    })
-                    .then(response => {
-                        if (!response.ok) throw new Error('Add note failed: ' + response.status);
-                        return response.json();
-                    })
-                    .then(data => {
-                        if (data.success) {
-                            hideAddNoteModal();
-                            const notesButton = document.getElementById('notesButton');
-                            notesButton.textContent = `Notes (${data.note_count})`;
-                            window.location.reload();
-                        } else {
-                            console.error('Add note failed:', data.error);
-                        }
-                    })
-                    .catch(err => console.error('Error adding note:', err));
-                });
-            }
-        });
-
         function hideNotesModal() {
             const modal = document.getElementById('notesModal');
             if (modal) {
@@ -591,6 +1073,16 @@ if (isset($_SESSION['user_id'])) {
             if (modal) modal.style.display = 'none';
         }
 
+        function showAddNoteModal() {
+            const modal = document.getElementById('addNoteModal');
+            if (modal) {
+                modal.style.display = 'block';
+                const pageSelect = document.getElementById('notePage');
+                pageSelect.value = isBookNotes ? '' : '<?php echo htmlspecialchars($page); ?>';
+                document.getElementById('noteText').innerHTML = '';
+            }
+        }
+
         function applyStyle(style) {
             const editor = document.getElementById('noteText');
             editor.focus();
@@ -601,7 +1093,60 @@ if (isset($_SESSION['user_id'])) {
             }
         }
 
-    <?php $conn->close(); ob_end_flush(); ?>
+        function toggleNotes() {
+            const notesContent = document.getElementById('notesContent');
+            const toggleButton = document.getElementById('toggleNotesButton');
+            const modalTitle = document.querySelector('#notesModal h2');
+
+            if (!isBookNotes) {
+                fetch('page.php', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/x-www-form-urlencoded', 
+                        'X-Requested-With': 'XMLHttpRequest' 
+                    },
+                    body: 'action=get_book_notes'
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('Fetch book notes failed: ' + response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        modalTitle.textContent = 'Book Notes';
+                        let html = '';
+                        if (data.notes.length > 0) {
+                            data.notes.forEach((note, index) => {
+                                if (note.meeting_id && note.meeting_date && note.title) {
+                                    html += `<b><i>${note.meeting_date} - ${note.title}</i></b><br>`;
+                                }
+                                html += note.note;
+                                const created_at = new Date(note.created_at);
+                                html += `<div class="note-timestamp">${created_at.getMonth() + 1}/${created_at.getDate()}/${created_at.getFullYear()} ${created_at.getHours() % 12 || 12}:${created_at.getMinutes().toString().padStart(2, '0')} ${created_at.getHours() >= 12 ? 'PM' : 'AM'}</div>`;
+                                if (index < data.notes.length - 1) {
+                                    html += '<hr>';
+                                }
+                            });
+                        } else {
+                            html = '<p>No book notes available.</p>';
+                        }
+                        notesContent.innerHTML = html;
+                        toggleButton.textContent = 'Page Notes';
+                        isBookNotes = true;
+                    } else {
+                        console.error('Fetch book notes failed:', data.error);
+                    }
+                })
+                .catch(err => console.error('Error fetching book notes:', err));
+            } else {
+                modalTitle.textContent = 'Notes - Page <?php echo htmlspecialchars($page); ?> - <?php echo htmlspecialchars($page_date); ?> - <?php echo htmlspecialchars($page_title); ?>';
+                notesContent.innerHTML = originalNotesContent;
+                toggleButton.textContent = 'Book Notes';
+                isBookNotes = false;
+            }
+        }
+
+        <?php $conn->close(); ob_end_flush(); ?>
     </script>
 </body>
 </html>
