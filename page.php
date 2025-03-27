@@ -458,8 +458,8 @@ if ($page && isset($_SESSION['user_id'])) {
                 }
                 echo '</div>';
                 echo '<div class="middle-buttons">';
-                echo '<button id="toggleAnnotations" class="notes-button">' . ($annotations_on ? '<s>Anno</s>' : 'Anno') . '</button>';
                 echo '<button id="notesButton" class="notes-button">Notes' . ($note_count > 0 ? " ($note_count)" : "") . '</button>';
+                echo '<button id="toggleAnnotations" class="notes-button">' . ($annotations_on ? '<s>Anno</s>' : 'Anno') . '</button>';
                 if ($annotations_on) {
                     echo '<button id="manageAnnotationsButton" class="manage-annotations-button">Man Anno (' . ($has_failed_annotations ? '!' : $annotation_count) . ')</button>';
                 }
@@ -500,8 +500,8 @@ if ($page && isset($_SESSION['user_id'])) {
             echo '<div class="button-row">';
             echo '<div class="left-buttons"></div>';
             echo '<div class="middle-buttons">';
-            echo '<button id="toggleAnnotations" class="notes-button">' . ($annotations_on ? '<s>Anno</s>' : 'Anno') . '</button>';
             echo '<button id="notesButton" class="notes-button">Notes</button>';
+            echo '<button id="toggleAnnotations" class="notes-button">' . ($annotations_on ? '<s>Anno</s>' : 'Anno') . '</button>';
             if ($annotations_on) {
                 echo '<button id="manageAnnotationsButton" class="manage-annotations-button">Man Anno (' . ($has_failed_annotations ? '!' : $annotation_count) . ')</button>';
             }
