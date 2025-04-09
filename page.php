@@ -114,20 +114,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $response = ['success' => false, 'error' => 'Database connection failed'];
         } else {
             $stmt = $conn->prepare("
-                SELECT n.note, n.created_at, m.meeting_date, m.title 
+                SELECT n.note, n.created_at, n.reading_id, m.meeting_date, m.title AS meeting_title, 
+                       r.page, r.date AS reading_date, r.title AS reading_title
                 FROM fa_notes n
                 LEFT JOIN fa_user_meetings m ON n.meeting_id = m.id
-                WHERE n.user_id = ? AND n.reading_id IS NULL
-                ORDER BY n.created_at DESC
+                LEFT JOIN fa_readings r ON n.reading_id = r.page
+                WHERE n.user_id = ?
+                ORDER BY CASE WHEN n.reading_id IS NULL THEN 0 ELSE 1 END, n.reading_id, n.id
             ");
             $stmt->bind_param("i", $user_id);
             $stmt->execute();
             $result = $stmt->get_result();
-            $book_notes = [];
+            $notes = [];
             while ($row = $result->fetch_assoc()) {
-                $book_notes[] = $row;
+                $notes[] = $row;
             }
-            $response = ['success' => true, 'notes' => $book_notes];
+            $response = ['success' => true, 'notes' => $notes];
             $stmt->close();
             $conn->close();
         }
@@ -628,7 +630,7 @@ if ($page && isset($_SESSION['user_id'])) {
         let originalNotesContent = document.getElementById('notesContent') ? document.getElementById('notesContent').innerHTML : '';
         let annotationsOn = <?php echo $annotations_on; ?>;
         let currentSelection = null;
-        let hasDeletedAnnotations = false; // New flag
+        let hasDeletedAnnotations = false;
 
         const annotations = <?php echo json_encode($annotations); ?>;
         const readingPlain = <?php echo json_encode($reading_plain); ?>;
@@ -910,7 +912,7 @@ if ($page && isset($_SESSION['user_id'])) {
             const modal = document.getElementById('manageAnnotationsModal');
             if (hasDeletedAnnotations) {
                 window.location.reload();
-                hasDeletedAnnotations = false; // Redundant due to reload, but for clarity
+                hasDeletedAnnotations = false;
             } else {
                 modal.style.display = 'none';
             }
@@ -1052,9 +1054,12 @@ if ($page && isset($_SESSION['user_id'])) {
                 document.execCommand('copy');
                 const feedback = document.getElementById('copyFeedback');
                 feedback.style.display = 'block';
-                setTimeout(() => feedback.style.display = 'none', 1000);
+                setTimeout(() => feedback.style.display = 'none', 2000);
             } catch (err) {
                 alert('Failed to copy content. Please try manually.');
+            } finally {
+                window.getSelection().removeAllRanges();
+                document.body.removeChild(tempDiv);
             }
             window.getSelection().removeAllRanges();
             document.body.removeChild(tempDiv);
@@ -1108,36 +1113,45 @@ if ($page && isset($_SESSION['user_id'])) {
                     body: 'action=get_book_notes'
                 })
                 .then(response => {
-                    if (!response.ok) throw new Error('Fetch book notes failed: ' + response.status);
+                    if (!response.ok) throw new Error('Fetch notes failed: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
                     if (data.success) {
-                        modalTitle.textContent = 'Book Notes';
+                        modalTitle.textContent = 'All Notes';
                         let html = '';
                         if (data.notes.length > 0) {
+                            let currentReadingId = null;
                             data.notes.forEach((note, index) => {
-                                if (note.meeting_id && note.meeting_date && note.title) {
-                                    html += `<b><i>${note.meeting_date} - ${note.title}</i></b><br>`;
+                                if (note.reading_id !== currentReadingId) {
+                                    if (index > 0) html += '<hr>';
+                                    if (note.reading_id === null) {
+                                        html += '<h2>Book Notes</h2>';
+                                    } else {
+                                        html += `<h2>Notes - Page ${note.page} - ${note.reading_date} - ${note.reading_title}</h2>`;
+                                    }
+                                    currentReadingId = note.reading_id;
+                                } else if (index > 0) {
+                                    html += '<hr>';
+                                }
+                                if (note.meeting_id && note.meeting_date && note.meeting_title) {
+                                    html += `<b><i>${note.meeting_date} - ${note.meeting_title}</i></b><br>`;
                                 }
                                 html += note.note;
                                 const created_at = new Date(note.created_at);
                                 html += `<div class="note-timestamp">${created_at.getMonth() + 1}/${created_at.getDate()}/${created_at.getFullYear()} ${created_at.getHours() % 12 || 12}:${created_at.getMinutes().toString().padStart(2, '0')} ${created_at.getHours() >= 12 ? 'PM' : 'AM'}</div>`;
-                                if (index < data.notes.length - 1) {
-                                    html += '<hr>';
-                                }
                             });
                         } else {
-                            html = '<p>No book notes available.</p>';
+                            html = '<p>No notes available.</p>';
                         }
                         notesContent.innerHTML = html;
                         toggleButton.textContent = 'Page Notes';
                         isBookNotes = true;
                     } else {
-                        console.error('Fetch book notes failed:', data.error);
+                        console.error('Fetch notes failed:', data.error);
                     }
                 })
-                .catch(err => console.error('Error fetching book notes:', err));
+                .catch(err => console.error('Error fetching notes:', err));
             } else {
                 modalTitle.textContent = 'Notes - Page <?php echo htmlspecialchars($page); ?> - <?php echo htmlspecialchars($page_date); ?> - <?php echo htmlspecialchars($page_title); ?>';
                 notesContent.innerHTML = originalNotesContent;
