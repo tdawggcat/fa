@@ -98,6 +98,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit();
 }
 
+// Handle "Delete Note" submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_note' && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $note_id = (int)$_POST['note_id'];
+
+    $cred_file = '/home/tdawggcat/.mysql_user';
+    if (!file_exists($cred_file)) {
+        $response = ['success' => false, 'error' => 'Credentials file not found'];
+    } else {
+        $credentials = trim(file_get_contents($cred_file));
+        list($username, $password) = explode(':', $credentials, 2);
+        $conn = new mysqli('localhost', trim($username), trim($password), 'tdawggcat_fa');
+        
+        if ($conn->connect_error) {
+            $response = ['success' => false, 'error' => 'Database connection failed'];
+        } else {
+            $stmt = $conn->prepare("DELETE FROM fa_notes WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("ii", $note_id, $user_id);
+            $success = $stmt->execute();
+            $response = ['success' => $success];
+            $stmt->close();
+            $conn->close();
+        }
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    ob_end_flush();
+    exit();
+}
+
+// Handle "Get Page Notes" AJAX request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'get_page_notes' && isset($_SESSION['user_id'])) {
+    $user_id = $_SESSION['user_id'];
+    $page = $_POST['page'];
+
+    $cred_file = '/home/tdawggcat/.mysql_user';
+    if (!file_exists($cred_file)) {
+        $response = ['success' => false, 'error' => 'Credentials file not found'];
+    } else {
+        $credentials = trim(file_get_contents($cred_file));
+        list($username, $password) = explode(':', $credentials, 2);
+        $conn = new mysqli('localhost', trim($username), trim($password), 'tdawggcat_fa');
+        
+        if ($conn->connect_error) {
+            $response = ['success' => false, 'error' => 'Database connection failed'];
+        } else {
+            $stmt = $conn->prepare("
+                SELECT n.id, n.meeting_id, n.note, n.created_at, m.meeting_date, m.title AS meeting_title
+                FROM fa_notes n
+                LEFT JOIN fa_user_meetings m ON n.meeting_id = m.id
+                WHERE n.user_id = ? AND n.reading_id = ?
+                ORDER BY n.created_at DESC
+            ");
+            $stmt->bind_param("is", $user_id, $page);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $notes = [];
+            while ($row = $result->fetch_assoc()) {
+                $notes[] = $row;
+            }
+            $response = ['success' => true, 'notes' => $notes];
+            $stmt->close();
+            $conn->close();
+        }
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    exit(); // Stop further execution
+}
+
 // Handle "Book Notes" AJAX request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'get_book_notes' && isset($_SESSION['user_id'])) {
     $user_id = $_SESSION['user_id'];
@@ -114,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $response = ['success' => false, 'error' => 'Database connection failed'];
         } else {
             $stmt = $conn->prepare("
-                SELECT n.note, n.created_at, n.reading_id, m.meeting_date, m.title AS meeting_title, 
+                SELECT n.id, n.note, n.created_at, n.reading_id, m.meeting_date, m.title AS meeting_title, 
                        r.page, r.date AS reading_date, r.title AS reading_title
                 FROM fa_notes n
                 LEFT JOIN fa_user_meetings m ON n.meeting_id = m.id
@@ -293,7 +365,7 @@ $note_count = 0;
 if ($page && isset($_SESSION['user_id'])) {
     $user_id = $_SESSION['user_id'];
     $stmt = $conn->prepare("
-        SELECT n.meeting_id, n.note, n.created_at, m.meeting_date, m.title 
+        SELECT n.id, n.meeting_id, n.note, n.created_at, m.meeting_date, m.title 
         FROM fa_notes n
         LEFT JOIN fa_user_meetings m ON n.meeting_id = m.id
         WHERE n.user_id = ? AND n.reading_id = ?
@@ -408,6 +480,8 @@ if ($page && isset($_SESSION['user_id'])) {
         .manage-annotations-list { text-align: left; max-height: 300px; overflow-y: auto; }
         .manage-annotations-list div { margin: 10px 0; }
         .manage-annotations-list .failed { color: red; }
+        .delete-note, .delete-annotation { margin-left: 10px; cursor: pointer; color: #666; font-size: 16px; }
+        .delete-note:hover, .delete-annotation:hover { color: #ff0000; }
     </style>
 </head>
 <body>
@@ -542,7 +616,8 @@ if ($page && isset($_SESSION['user_id'])) {
                         }
                         echo $note['note'];
                         $created_at = new DateTime($note['created_at']);
-                        echo '<div class="note-timestamp">' . $created_at->format('n/j/Y g:i A') . '</div>';
+                        echo '<div class="note-timestamp">' . $created_at->format('n/j/Y g:i A') . 
+                             ' <span class="delete-note" onclick="deleteNote(' . $note['id'] . ')">🗑️</span></div>';
                         if ($index < count($notes) - 1) {
                             echo '<hr>';
                         }
@@ -760,6 +835,7 @@ if ($page && isset($_SESSION['user_id'])) {
                         isBookNotes = false;
                         document.getElementById('toggleNotesButton').textContent = 'Book Notes';
                         document.querySelector('#notesModal h2').textContent = 'Notes - Page <?php echo htmlspecialchars($page); ?> - <?php echo htmlspecialchars($page_date); ?> - <?php echo htmlspecialchars($page_title); ?>';
+                        fetchPageNotes();
                     }
                 });
             }
@@ -899,7 +975,7 @@ if ($page && isset($_SESSION['user_id'])) {
                     <div class="${isFailed ? 'failed' : ''}">
                         <strong>${annotation.part === 'reading' ? 'Reading' : 'Today I Will'}:</strong> 
                         <span class="${annotation.style}">${snippet}</span>
-                        <button onclick="deleteAnnotation(${annotation.id})">Delete</button>
+                        <span class="delete-annotation" onclick="deleteAnnotation(${annotation.id})">🗑️</span>
                     </div>`;
             });
 
@@ -932,12 +1008,71 @@ if ($page && isset($_SESSION['user_id'])) {
                         annotations.splice(index, 1);
                     }
                     hasDeletedAnnotations = true;
-                    showManageAnnotationsModal();
+                    showManageAnnotationsModal(); // Refresh modal content
                 } else {
                     console.error('Deletion failed:', data.error);
                 }
             })
             .catch(err => console.error('Error deleting annotation:', err));
+        }
+
+        function deleteNote(id) {
+            fetch('page.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+                body: `action=delete_note&note_id=${id}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (isBookNotes) {
+                        toggleNotes(); // Refresh book notes
+                    } else {
+                        fetchPageNotes(); // Refresh page notes
+                    }
+                    const notesButton = document.getElementById('notesButton');
+                    const currentCount = parseInt(notesButton.textContent.match(/\d+/) || 0);
+                    if (currentCount > 0) {
+                        notesButton.textContent = `Notes (${currentCount - 1})`;
+                    }
+                } else {
+                    console.error('Note deletion failed:', data.error);
+                }
+            })
+            .catch(err => console.error('Error deleting note:', err));
+        }
+
+        function fetchPageNotes() {
+            fetch('page.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+                body: 'action=get_page_notes&page=<?php echo urlencode($page); ?>'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const notesContent = document.getElementById('notesContent');
+                    let html = '';
+                    if (data.notes.length > 0) {
+                        data.notes.forEach((note, index) => {
+                            if (note.meeting_id && note.meeting_date && note.meeting_title) {
+                                html += `<b><i>${note.meeting_date} - ${note.meeting_title}</i></b><br>`;
+                            }
+                            html += `<div>${note.note}</div>`;
+                            const created_at = new Date(note.created_at);
+                            html += `<div class="note-timestamp">${created_at.getMonth() + 1}/${created_at.getDate()}/${created_at.getFullYear()} ${created_at.getHours() % 12 || 12}:${created_at.getMinutes().toString().padStart(2, '0')} ${created_at.getHours() >= 12 ? 'PM' : 'AM'} 
+                                     <span class="delete-note" onclick="deleteNote(${note.id})">🗑️</span></div>`;
+                            if (index < data.notes.length - 1) html += '<hr>';
+                        });
+                    } else {
+                        html = '<p>No notes available for this page.</p>';
+                    }
+                    notesContent.innerHTML = html;
+                } else {
+                    console.error('Fetch page notes failed:', data.error);
+                }
+            })
+            .catch(err => console.error('Error fetching page notes:', err));
         }
 
         const readButton = document.getElementById('readButton');
@@ -1061,8 +1196,6 @@ if ($page && isset($_SESSION['user_id'])) {
                 window.getSelection().removeAllRanges();
                 document.body.removeChild(tempDiv);
             }
-            window.getSelection().removeAllRanges();
-            document.body.removeChild(tempDiv);
         }
 
         function hideNotesModal() {
@@ -1070,6 +1203,7 @@ if ($page && isset($_SESSION['user_id'])) {
             if (modal) {
                 modal.style.display = 'none';
                 document.body.style.overflow = 'auto';
+                isBookNotes = false; // Reset to page notes
             }
         }
 
@@ -1137,9 +1271,10 @@ if ($page && isset($_SESSION['user_id'])) {
                                 if (note.meeting_id && note.meeting_date && note.meeting_title) {
                                     html += `<b><i>${note.meeting_date} - ${note.meeting_title}</i></b><br>`;
                                 }
-                                html += note.note;
+                                html += `<div>${note.note}</div>`;
                                 const created_at = new Date(note.created_at);
-                                html += `<div class="note-timestamp">${created_at.getMonth() + 1}/${created_at.getDate()}/${created_at.getFullYear()} ${created_at.getHours() % 12 || 12}:${created_at.getMinutes().toString().padStart(2, '0')} ${created_at.getHours() >= 12 ? 'PM' : 'AM'}</div>`;
+                                html += `<div class="note-timestamp">${created_at.getMonth() + 1}/${created_at.getDate()}/${created_at.getFullYear()} ${created_at.getHours() % 12 || 12}:${created_at.getMinutes().toString().padStart(2, '0')} ${created_at.getHours() >= 12 ? 'PM' : 'AM'} 
+                                         <span class="delete-note" onclick="deleteNote(${note.id})">🗑️</span></div>`;
                             });
                         } else {
                             html = '<p>No notes available.</p>';
